@@ -21,9 +21,9 @@ cp "${KUBECONFIG:-/root/.kube/config}" "$WORK/kubeconfig"
 export KUBECONFIG="$WORK/kubeconfig"
 
 python3 - "$INDEX" "$WORK" <<'PY'
-import sys, yaml, pathlib
+import re, sys, yaml, pathlib
 index, work = sys.argv[1], pathlib.Path(sys.argv[2])
-fm = yaml.safe_load(open(index).read().split("---\n")[1])
+fm = yaml.safe_load(re.split(r"^---$\n", open(index).read(), maxsplit=2, flags=re.M)[1])
 for name, task in fm["tasks"].items():
     (work / f"{name}.run.sh").write_text(task["run"])
     if "hintcheck" in task:
