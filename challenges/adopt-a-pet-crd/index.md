@@ -59,7 +59,7 @@ tasks:
       | species        | string              | yes      |         | one of: cat, dog, dragon, cactus        |
       | toy            | string              | no       |         | at most 20 characters                   |
       | diet.food      | string              | no       | snacks  | at most 20 characters                   |
-      | diet.feedEvery | string              | no       | 10m     | a number followed by s, m or h (e.g. 90s, 10m, 6h), at most 10 characters |
+      | diet.feedEvery | string              | no       | 10m     | a number followed by s, m or h (e.g. 90s, 10m, 6h), at most 10 characters, between 1s and 8760h (a year) |
       | lastFedAt      | string (date-time)  | no       |         |                                         |
 
       A Pet without a `diet` block must still end up with `diet.food: snacks`
@@ -262,6 +262,8 @@ tasks:
         '{"species":"cactus","diet":{"food":"water","feedEvery":"168h"}}'
         '{"species":"cat","toy":"12345678901234567890","diet":{"feedEvery":"45s"}}'
         '{"species":"cat","lastFedAt":"2026-09-26T10:00:00Z"}'
+        '{"species":"cactus","diet":{"feedEvery":"8760h"}}'
+        '{"species":"cat","diet":{"feedEvery":"1s"}}'
       )
       for spec in "${GOOD[@]}"; do try "$spec" || exit 1; done
     hintcheck: |
@@ -277,6 +279,8 @@ tasks:
         '{"species":"cactus","diet":{"food":"water","feedEvery":"168h"}}'
         '{"species":"cat","toy":"12345678901234567890","diet":{"feedEvery":"45s"}}'
         '{"species":"cat","lastFedAt":"2026-09-26T10:00:00Z"}'
+        '{"species":"cactus","diet":{"feedEvery":"8760h"}}'
+        '{"species":"cat","diet":{"feedEvery":"1s"}}'
       )
       for spec in "${GOOD[@]}"; do
         if err=$(try "$spec") && [ -z "$err" ]; then continue; fi
@@ -308,6 +312,9 @@ tasks:
         '{"species":"cat","diet":{"feedEvery":10}}'
         '{"species":"cat","diet":{"food":"a very long list of snacks"}}'
         '{"species":"cat","lastFedAt":"yesterday"}'
+        '{"species":"cat","diet":{"feedEvery":"0s"}}'
+        '{"species":"cat","diet":{"feedEvery":"8761h"}}'
+        '{"species":"cat","diet":{"feedEvery":"9999999h"}}'
       )
       try '{"species":"cat"}' || exit 1
       for spec in "${BAD[@]}"; do try "$spec" && exit 1; done
@@ -329,6 +336,9 @@ tasks:
         'spec.diet.feedEvery is the number 10|{"species":"cat","diet":{"feedEvery":10}}'
         'spec.diet.food is 26 characters long|{"species":"cat","diet":{"food":"a very long list of snacks"}}'
         'spec.lastFedAt is "yesterday"|{"species":"cat","lastFedAt":"yesterday"}'
+        'spec.diet.feedEvery is "0s" (the pet would never be full)|{"species":"cat","diet":{"feedEvery":"0s"}}'
+        'spec.diet.feedEvery is "8761h", just over a year|{"species":"cat","diet":{"feedEvery":"8761h"}}'
+        'spec.diet.feedEvery is "9999999h", more than a controller can even count|{"species":"cat","diet":{"feedEvery":"9999999h"}}'
       )
       for c in "${BAD[@]}"; do
         if try "${c#*|}"; then
@@ -626,6 +636,7 @@ Every invalid Pet was turned away before it could reach etcd.
 ---
 A CRD's `openAPIV3Schema` supports much more than `type`.
 Look up `required`, `enum`, `maxLength`, `pattern` and `format`.
+A pattern can check that `feedEvery` *looks* like a duration, but not how long it is. For that, you need the same tool as for the house rules below.
 
 You can test your schema without creating anything:
 

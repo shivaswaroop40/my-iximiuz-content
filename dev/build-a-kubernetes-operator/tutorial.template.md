@@ -288,7 +288,7 @@ kubectl apply -f ~/pet-operator/config/crd-by-hand.yaml
 | `shortNames`, `categories` | `kubectl get pt` and `kubectl get zoo` work. Pure convenience, but it's what people actually type. |
 | `openAPIV3Schema` with `type`, `required`, `enum`, `maxLength`, `pattern`, `format` | Rejects bad objects **before** they reach etcd. Unknown fields are pruned. |
 | `x-kubernetes-validations` | [CEL](https://kubernetes.io/docs/reference/using-api/cel/) rules for what OpenAPI can't express, like "a cactus can't have a toy". The rules sit on `spec` because each one needs to see two fields. |
-| `duration(...)` | CEL can parse durations. Compared as strings, `'59m' >= '1h'` would be true! |
+| `duration(...)` | CEL can parse durations. Compared as strings, `'59m' >= '1h'` would be true! A second rule keeps `feedEvery` between `1s` and a year: the pattern alone would let through `0s` or `9999999h`, which the controller couldn't use. |
 | `default` | Fills in missing fields, so every client (and your controller!) sees the same complete object. |
 | `diet: default: {}` | The subtle one. Defaults apply only where the parent object exists. Without this, a Pet with no `diet` block never gets `food: snacks` or `feedEvery: 10m`. |
 | `subresources: status: {}` | `.status` gets its own endpoint. Users write `spec`, the controller writes `status`, and neither can overwrite the other. |
@@ -439,7 +439,8 @@ The `goldie` Pod is still there, an orphan. The script only knows how to add thi
   An efficient, event-driven controller only wakes up when something changes, and the passing of time is not a change in the cluster.
   You'll see how a real controller solves that.
 
-Stop the script with `Ctrl+C` in the second tab, and clean up after it:
+Stop the script with `Ctrl+C` in the second tab, and clean up after it.
+(If you forget, the operator in Part 3 will refuse to move mochi into a Pod it doesn't own, and tell you so in the Pet's status.)
 
 ```sh
 kubectl delete pods -n zoo --all
@@ -546,6 +547,7 @@ Some things worth noticing:
 - **Hunger is computed, not stored.** Nothing in the cluster changes when time passes, so every run works out the mood from `lastFedAt` and the clock.
 - **`RequeueAfter`** is how the controller deals with time: "call me again when this pet's mood is due to change". There's no polling, and no timer per pet in your code. The controller's work queue takes care of it.
 - **The ConfigMap is updated, the Pod never is.** Anything that changes (the card) lives in the ConfigMap, and the Pod just mounts it. That's the fix for the bash script's "mochi still thinks it's a cat" problem. `CreateOrUpdate` reads the ConfigMap (or starts from an empty one), runs your function, and writes only if something actually changed.
+- **Never touch what you don't own.** If a Pod named `mochi` already exists but isn't controlled by the Pet (say, a leftover from the bash script), the controller neither uses nor deletes it. It reports `PodNameTaken` in the Pet's `AtHome` condition and checks back every 10 seconds.
 - **`SetControllerReference`** stamps the Pod and the ConfigMap with an owner reference pointing at the Pet. That fixes the orphan problem, as you'll see.
 - **`Owns(&corev1.Pod{})`**: when a Pod or ConfigMap that belongs to a Pet changes or disappears, the *owner* Pet gets reconciled.
 - **Events** (`Recorder.Eventf`) leave a human-readable trail in `kubectl describe pet`.

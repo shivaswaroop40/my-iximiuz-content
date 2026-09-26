@@ -57,6 +57,9 @@ spec:
                     maxLength: 10
                     pattern: '^[0-9]+(s|m|h)$'
                     default: 10m
+                    x-kubernetes-validations:
+                    - rule: "duration(self) >= duration('1s') && duration(self) <= duration('8760h')"
+                      message: "feedEvery must be between 1s and 8760h (a year)"
               lastFedAt:
                 type: string
                 format: date-time

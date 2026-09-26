@@ -335,6 +335,9 @@ spec:
                     maxLength: 10
                     pattern: '^[0-9]+(s|m|h)$'
                     default: 10m
+                    x-kubernetes-validations:
+                    - rule: "duration(self) >= duration('1s') && duration(self) <= duration('8760h')"
+                      message: "feedEvery must be between 1s and 8760h (a year)"
               lastFedAt:
                 type: string
                 format: date-time
@@ -355,7 +358,7 @@ kubectl apply -f ~/pet-operator/config/crd-by-hand.yaml
 | `shortNames`, `categories` | `kubectl get pt` and `kubectl get zoo` work. Pure convenience, but it's what people actually type. |
 | `openAPIV3Schema` with `type`, `required`, `enum`, `maxLength`, `pattern`, `format` | Rejects bad objects **before** they reach etcd. Unknown fields are pruned. |
 | `x-kubernetes-validations` | [CEL](https://kubernetes.io/docs/reference/using-api/cel/) rules for what OpenAPI can't express, like "a cactus can't have a toy". The rules sit on `spec` because each one needs to see two fields. |
-| `duration(...)` | CEL can parse durations. Compared as strings, `'59m' >= '1h'` would be true! |
+| `duration(...)` | CEL can parse durations. Compared as strings, `'59m' >= '1h'` would be true! A second rule keeps `feedEvery` between `1s` and a year: the pattern alone would let through `0s` or `9999999h`, which the controller couldn't use. |
 | `default` | Fills in missing fields, so every client (and your controller!) sees the same complete object. |
 | `diet: default: {}` | The subtle one. Defaults apply only where the parent object exists. Without this, a Pet with no `diet` block never gets `food: snacks` or `feedEvery: 10m`. |
 | `subresources: status: {}` | `.status` gets its own endpoint. Users write `spec`, the controller writes `status`, and neither can overwrite the other. |
@@ -520,7 +523,8 @@ The `goldie` Pod is still there, an orphan. The script only knows how to add thi
   An efficient, event-driven controller only wakes up when something changes, and the passing of time is not a change in the cluster.
   You'll see how a real controller solves that.
 
-Stop the script with `Ctrl+C` in the second tab, and clean up after it:
+Stop the script with `Ctrl+C` in the second tab, and clean up after it.
+(If you forget, the operator in Part 3 will refuse to move mochi into a Pod it doesn't own, and tell you so in the Pet's status.)
 
 ```sh
 kubectl delete pods -n zoo --all
@@ -614,6 +618,7 @@ type Diet struct {
 	// How often the pet needs food, e.g. "10m" or "6h".
 	// +kubebuilder:validation:MaxLength=10
 	// +kubebuilder:validation:Pattern=`^[0-9]+(s|m|h)$`
+	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1s') && duration(self) <= duration('8760h')",message="feedEvery must be between 1s and 8760h (a year)"
 	// +kubebuilder:default="10m"
 	// +optional
 	FeedEvery string `json:"feedEvery,omitempty"`
@@ -784,7 +789,7 @@ func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		logger.Info("card updated", "mood", mood, "operation", op)
 	}
 
-	podName, err := r.reconcilePod(ctx, &pet, card, mood)
+	podName, nameTaken, err := r.reconcilePod(ctx, &pet, card, mood)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -804,9 +809,18 @@ func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	if mood == RanAway {
 		home.Status, home.Message = metav1.ConditionFalse, fmt.Sprintf("%s ran away. Feed it to bring it back.", pet.Name)
 	}
+	if nameTaken {
+		home.Status, home.Reason = metav1.ConditionFalse, "PodNameTaken"
+		home.Message = fmt.Sprintf("a Pod named %s already exists and doesn't belong to this Pet. Delete it and %s moves in.", pet.Name, pet.Name)
+	}
 	meta.SetStatusCondition(&pet.Status.Conditions, home)
 	if err := r.Status().Update(ctx, &pet); err != nil {
 		return ctrl.Result{}, err
+	}
+
+	// We only watch Pods we own, so nothing tells us when someone else's Pod goes away. Check back.
+	if nameTaken {
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
 	// 4. Come back when the mood is due to change, even if nothing else happens.
@@ -834,25 +848,35 @@ func moodAt(now, lastFed time.Time, feedEvery time.Duration) (mood string, chang
 // reconcilePod makes sure the pet's Pod exists, unless the pet ran away.
 // Most of a Pod's spec can't be changed after creation, so the Pod never gets
 // updated: anything that changes (the card) lives in the ConfigMap it mounts.
-func (r *PetReconciler) reconcilePod(ctx context.Context, pet *zoov1alpha1.Pet, card *corev1.ConfigMap, mood string) (string, error) {
+// It reports nameTaken if a Pod with the pet's name exists but isn't the pet's.
+func (r *PetReconciler) reconcilePod(ctx context.Context, pet *zoov1alpha1.Pet, card *corev1.ConfigMap, mood string) (podName string, nameTaken bool, err error) {
 	var pod corev1.Pod
-	err := r.Get(ctx, client.ObjectKey{Namespace: pet.Namespace, Name: pet.Name}, &pod)
+	err = r.Get(ctx, client.ObjectKey{Namespace: pet.Namespace, Name: pet.Name}, &pod)
 	exists := err == nil
 	if err != nil && !apierrors.IsNotFound(err) {
-		return "", err
+		return "", false, err
+	}
+
+	// Never use, or delete, what you don't own.
+	if exists && !metav1.IsControlledBy(&pod, pet) {
+		if mood == RanAway {
+			return "", false, nil
+		}
+		r.Recorder.Eventf(pet, &pod, corev1.EventTypeWarning, "PodNameTaken", "CreatePod", "Pod %s already exists and doesn't belong to %s", pod.Name, pet.Name)
+		return "", true, nil
 	}
 
 	if mood == RanAway {
 		if exists && pod.DeletionTimestamp == nil {
 			if err := r.Delete(ctx, &pod); client.IgnoreNotFound(err) != nil {
-				return "", err
+				return "", false, err
 			}
 			r.Recorder.Eventf(pet, &pod, corev1.EventTypeWarning, "RanAway", "Starve", "%s got too hungry and ran away", pet.Name)
 		}
-		return "", nil
+		return "", false, nil
 	}
 	if exists {
-		return pod.Name, nil
+		return pod.Name, false, nil
 	}
 
 	pod = corev1.Pod{
@@ -878,13 +902,13 @@ func (r *PetReconciler) reconcilePod(ctx context.Context, pet *zoov1alpha1.Pet, 
 		},
 	}
 	if err := controllerutil.SetControllerReference(pet, &pod, r.Scheme); err != nil {
-		return "", err
+		return "", false, err
 	}
 	if err := r.Create(ctx, &pod); err != nil {
-		return "", err
+		return "", false, err
 	}
 	r.Recorder.Eventf(pet, &pod, corev1.EventTypeNormal, "MovedIn", "CreatePod", "%s moved into Pod %s", pet.Name, pod.Name)
-	return pod.Name, nil
+	return pod.Name, false, nil
 }
 
 var faces = map[string]map[string]string{
@@ -959,6 +983,7 @@ Some things worth noticing:
 - **Hunger is computed, not stored.** Nothing in the cluster changes when time passes, so every run works out the mood from `lastFedAt` and the clock.
 - **`RequeueAfter`** is how the controller deals with time: "call me again when this pet's mood is due to change". There's no polling, and no timer per pet in your code. The controller's work queue takes care of it.
 - **The ConfigMap is updated, the Pod never is.** Anything that changes (the card) lives in the ConfigMap, and the Pod just mounts it. That's the fix for the bash script's "mochi still thinks it's a cat" problem. `CreateOrUpdate` reads the ConfigMap (or starts from an empty one), runs your function, and writes only if something actually changed.
+- **Never touch what you don't own.** If a Pod named `mochi` already exists but isn't controlled by the Pet (say, a leftover from the bash script), the controller neither uses nor deletes it. It reports `PodNameTaken` in the Pet's `AtHome` condition and checks back every 10 seconds.
 - **`SetControllerReference`** stamps the Pod and the ConfigMap with an owner reference pointing at the Pet. That fixes the orphan problem, as you'll see.
 - **`Owns(&corev1.Pod{})`**: when a Pod or ConfigMap that belongs to a Pet changes or disappears, the *owner* Pet gets reconciled.
 - **Events** (`Recorder.Eventf`) leave a human-readable trail in `kubectl describe pet`.

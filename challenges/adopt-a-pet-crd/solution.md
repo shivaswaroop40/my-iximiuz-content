@@ -74,6 +74,9 @@ spec:
                     maxLength: 10
                     pattern: '^[0-9]+(s|m|h)$'
                     default: 10m
+                    x-kubernetes-validations:
+                    - rule: "duration(self) >= duration('1s') && duration(self) <= duration('8760h')"
+                      message: "feedEvery must be between 1s and 8760h (a year)"
               lastFedAt:
                 type: string
                 format: date-time
@@ -98,6 +101,9 @@ A few things are easy to get wrong:
   and each rule here needs to see `species` *and* another field.
 - **Compare durations, not strings.** `'59m' >= '1h'` is `true` as a string comparison (`'5' > '1'`).
   `duration()` parses the string, so `duration('59m') >= duration('1h')` is correctly `false`.
+- **A pattern checks the shape, not the size.** `^[0-9]+(s|m|h)$` happily accepts `0s` or `9999999h`.
+  The range check on `feedEvery` is a CEL rule attached to the field itself: it only needs to see `self`.
+  (Anything a controller will `time.ParseDuration()` had better be bounded: Go durations max out at about 292 years.)
 - **Defaulting runs before validation.** That's why `lazy-dragon.yaml`, which has no `diet` at all, is rejected:
   it gets `feedEvery: 10m` from the default, and then fails the dragon rule.
   It's also why `self.diet.feedEvery` is always safe to read in the rule.

@@ -70,7 +70,7 @@ func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		logger.Info("card updated", "mood", mood, "operation", op)
 	}
 
-	podName, err := r.reconcilePod(ctx, &pet, card, mood)
+	podName, nameTaken, err := r.reconcilePod(ctx, &pet, card, mood)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -90,9 +90,18 @@ func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	if mood == RanAway {
 		home.Status, home.Message = metav1.ConditionFalse, fmt.Sprintf("%s ran away. Feed it to bring it back.", pet.Name)
 	}
+	if nameTaken {
+		home.Status, home.Reason = metav1.ConditionFalse, "PodNameTaken"
+		home.Message = fmt.Sprintf("a Pod named %s already exists and doesn't belong to this Pet. Delete it and %s moves in.", pet.Name, pet.Name)
+	}
 	meta.SetStatusCondition(&pet.Status.Conditions, home)
 	if err := r.Status().Update(ctx, &pet); err != nil {
 		return ctrl.Result{}, err
+	}
+
+	// We only watch Pods we own, so nothing tells us when someone else's Pod goes away. Check back.
+	if nameTaken {
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
 	// 4. Come back when the mood is due to change, even if nothing else happens.
@@ -120,25 +129,35 @@ func moodAt(now, lastFed time.Time, feedEvery time.Duration) (mood string, chang
 // reconcilePod makes sure the pet's Pod exists, unless the pet ran away.
 // Most of a Pod's spec can't be changed after creation, so the Pod never gets
 // updated: anything that changes (the card) lives in the ConfigMap it mounts.
-func (r *PetReconciler) reconcilePod(ctx context.Context, pet *zoov1alpha1.Pet, card *corev1.ConfigMap, mood string) (string, error) {
+// It reports nameTaken if a Pod with the pet's name exists but isn't the pet's.
+func (r *PetReconciler) reconcilePod(ctx context.Context, pet *zoov1alpha1.Pet, card *corev1.ConfigMap, mood string) (podName string, nameTaken bool, err error) {
 	var pod corev1.Pod
-	err := r.Get(ctx, client.ObjectKey{Namespace: pet.Namespace, Name: pet.Name}, &pod)
+	err = r.Get(ctx, client.ObjectKey{Namespace: pet.Namespace, Name: pet.Name}, &pod)
 	exists := err == nil
 	if err != nil && !apierrors.IsNotFound(err) {
-		return "", err
+		return "", false, err
+	}
+
+	// Never use, or delete, what you don't own.
+	if exists && !metav1.IsControlledBy(&pod, pet) {
+		if mood == RanAway {
+			return "", false, nil
+		}
+		r.Recorder.Eventf(pet, &pod, corev1.EventTypeWarning, "PodNameTaken", "CreatePod", "Pod %s already exists and doesn't belong to %s", pod.Name, pet.Name)
+		return "", true, nil
 	}
 
 	if mood == RanAway {
 		if exists && pod.DeletionTimestamp == nil {
 			if err := r.Delete(ctx, &pod); client.IgnoreNotFound(err) != nil {
-				return "", err
+				return "", false, err
 			}
 			r.Recorder.Eventf(pet, &pod, corev1.EventTypeWarning, "RanAway", "Starve", "%s got too hungry and ran away", pet.Name)
 		}
-		return "", nil
+		return "", false, nil
 	}
 	if exists {
-		return pod.Name, nil
+		return pod.Name, false, nil
 	}
 
 	pod = corev1.Pod{
@@ -164,13 +183,13 @@ func (r *PetReconciler) reconcilePod(ctx context.Context, pet *zoov1alpha1.Pet, 
 		},
 	}
 	if err := controllerutil.SetControllerReference(pet, &pod, r.Scheme); err != nil {
-		return "", err
+		return "", false, err
 	}
 	if err := r.Create(ctx, &pod); err != nil {
-		return "", err
+		return "", false, err
 	}
 	r.Recorder.Eventf(pet, &pod, corev1.EventTypeNormal, "MovedIn", "CreatePod", "%s moved into Pod %s", pet.Name, pod.Name)
-	return pod.Name, nil
+	return pod.Name, false, nil
 }
 
 var faces = map[string]map[string]string{

@@ -69,6 +69,10 @@ spec:
                     maxLength: 10
                     pattern: ^[0-9]+(s|m|h)$
                     type: string
+                    x-kubernetes-validations:
+                    - message: feedEvery must be between 1s and 8760h (a year)
+                      rule: duration(self) >= duration('1s') && duration(self) <=
+                        duration('8760h')
                   food:
                     default: snacks
                     maxLength: 20

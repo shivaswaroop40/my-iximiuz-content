@@ -132,6 +132,9 @@ write_file "~/pet-operator/config/crd-by-hand.yaml"
 kubectl apply -f "$HOME/pet-operator/config/crd-by-hand.yaml" >/dev/null; sleep 2
 check pass verify_crd_full
 assert "dragon without a diet is rejected (default, then CEL)" bash -c "! echo '{\"apiVersion\":\"zoo.example.com/v1alpha1\",\"kind\":\"Pet\",\"metadata\":{\"name\":\"nope\",\"namespace\":\"zoo\"},\"spec\":{\"species\":\"dragon\"}}' | kubectl apply --dry-run=server -f -"
+for every in 0s 8761h 9999999h; do
+  assert "feedEvery: $every is rejected" bash -c "! echo '{\"apiVersion\":\"zoo.example.com/v1alpha1\",\"kind\":\"Pet\",\"metadata\":{\"name\":\"nope\",\"namespace\":\"zoo\"},\"spec\":{\"species\":\"cat\",\"diet\":{\"feedEvery\":\"$every\"}}}' | kubectl apply --dry-run=server -f -"
+done
 assert "mochi got the default diet" is pet mochi '{.spec.diet.food}/{.spec.diet.feedEvery}' 'snacks/10m'
 
 echo "== part 2: naive bash controller"
@@ -187,9 +190,17 @@ a, b = (clean(yaml.safe_load(open(f))["spec"]["versions"][0]["schema"]["openAPIV
 sys.exit(a != b)
 PY2
 kubectl apply -f config/zoo.example.com_pets.yaml >/dev/null; sleep 2
+
+echo "== part 3: a leftover Pod the Pet doesn't own (the learner skipped the cleanup)"
+kubectl run mochi -n $N --image=busybox:1.37 --restart=Never -- sleep 3600 >/dev/null
 start_operator
 # mochi was adopted minutes ago and never fed; here it's still Happy, on the playground it may not be.
 feed mochi
+assert "operator reports PodNameTaken" is pet mochi '{.status.conditions[?(@.type=="AtHome")].reason}' PodNameTaken
+assert "PodNameTaken warning event recorded" bash -c "kubectl get events -n $N --field-selector reason=PodNameTaken -o name | grep -q ."
+assert "the foreign Pod is left alone" bash -c "p=\$(kubectl get pod -n $N mochi -o jsonpath='{.metadata.uid}/{.metadata.ownerReferences}'); [ -n \"\$p\" ] && [ \"\${p#*/}\" = '' ]"
+check fail verify_operator_adopted
+kubectl delete pod -n $N mochi --wait=false >/dev/null
 check pass verify_operator_adopted
 assert "card shows the ASCII cat" has configmap mochi-card '{.data.card}' '( ^.^ )'
 

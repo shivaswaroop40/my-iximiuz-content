@@ -111,6 +111,17 @@ sed "s/duration(self.diet.feedEvery) >= duration('1h')/self.diet.feedEvery >= '1
 apply_crd "$WORK/string-compare.yaml"
 expect fail verify_house_rules
 
+echo "== stage: reference CRD without the feedEvery range rule (a pattern checks shape, not size)"
+reset
+python3 - "$HERE/reference-crd.yaml" "$WORK/no-range.yaml" <<'PY'
+import sys, yaml
+crd = yaml.safe_load(open(sys.argv[1]))
+del crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]["diet"]["properties"]["feedEvery"]["x-kubernetes-validations"]
+yaml.safe_dump(crd, open(sys.argv[2], "w"), allow_unicode=True)
+PY
+apply_crd "$WORK/no-range.yaml"
+expect fail verify_schema_rejects_invalid
+
 echo "== stage: reference CRD"
 reset
 apply_crd "$HERE/reference-crd.yaml"

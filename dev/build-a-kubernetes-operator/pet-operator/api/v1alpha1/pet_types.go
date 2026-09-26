@@ -30,6 +30,7 @@ type Diet struct {
 	// How often the pet needs food, e.g. "10m" or "6h".
 	// +kubebuilder:validation:MaxLength=10
 	// +kubebuilder:validation:Pattern=`^[0-9]+(s|m|h)$`
+	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1s') && duration(self) <= duration('8760h')",message="feedEvery must be between 1s and 8760h (a year)"
 	// +kubebuilder:default="10m"
 	// +optional
 	FeedEvery string `json:"feedEvery,omitempty"`
