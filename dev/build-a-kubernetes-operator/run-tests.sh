@@ -60,6 +60,11 @@ write_file() {
   echo "tutorial has no file block for $1"; exit 1
 }
 
+# The Labs examiner polls tasks, so a state that passes for only a few seconds can go unseen.
+# A learner waits for each checkpoint to turn green; give it the same time before the next step
+# changes the state a task just checked. Set EXAMINER_GRACE=0 when nothing is watching.
+examiner_grace() { sleep "${EXAMINER_GRACE:-15}"; }
+
 check() { # check <pass|fail> <task>: a "pass" may take a few seconds to converge
   local want=$1 task=$2 got=fail
   for _ in $(seq 15); do
@@ -119,6 +124,7 @@ spec:
   toy: yarn
 EOF
 check pass verify_crd_minimal
+examiner_grace
 check fail verify_crd_full
 assert "minimal CRD accepts a unicorn with toy: 42" bash -c "kubectl apply --dry-run=server -f - <<'EOF'
 apiVersion: zoo.example.com/v1alpha1
@@ -211,6 +217,7 @@ assert "Happy right after feeding" is pet mochi '{.status.mood}' Happy
 assert "Hungry after feedEvery, with nothing touching the Pet" is pet mochi '{.status.mood}/{.status.face}' 'Hungry/😾'
 assert "hungry card" has configmap mochi-card '{.data.card}' 'HUNGRY'
 check pass verify_ran_away
+examiner_grace
 assert "RanAway event recorded" bash -c "kubectl get events -n $N --field-selector reason=RanAway -o name | grep -q ."
 assert "AtHome condition is False" is pet mochi '{.status.conditions[?(@.type=="AtHome")].status}' False
 check fail verify_came_home
@@ -247,6 +254,7 @@ spec:
     feedEvery: 6h
 EOF
 check pass verify_second_pet
+examiner_grace
 assert "smaug is a happy dragon" is pet smaug '{.status.face}' '🐲'
 check fail verify_garbage_collected
 kubectl delete pet -n $N smaug >/dev/null

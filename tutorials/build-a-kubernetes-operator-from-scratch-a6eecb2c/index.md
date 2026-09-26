@@ -1282,7 +1282,8 @@ Waiting for the operator to move smaug in...
 One Pet, one Pod, one card, all owned by the Pet.
 ::
 
-Now, sadly, smaug has to go to a bigger zoo:
+Once the checkpoint above is green, sadly, smaug has to go to a bigger zoo.
+(Delete it too early and the checkpoint never sees smaug move in. If that happens, adopt smaug again.)
 
 ```sh
 kubectl delete pet -n zoo smaug
