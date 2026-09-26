@@ -163,17 +163,7 @@ You'll build it one layer at a time, and see every layer work before adding the 
 3. **The real controller.** Go and [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime), the library under Kubebuilder and Operator SDK.
 4. **The loop at work.** Let time pass, break things on purpose, and watch the controller cope.
 
-```text
-                  you                              the controller
-                   │                                     │
-  kubectl apply ──▶│  Pet                                │  watches Pets, and the
-                   │    spec:   species, diet, lastFedAt ┼─▶ Pods and ConfigMaps they own
-                   │    status: mood, face          ◀────┼── writes observations back
-                   │                                     │
-                   │                                     ▼
-                   │                     ConfigMap "mochi-card" ──▶ Pod "mochi"
-                   │                     (the pet's ASCII card)     (prints it)
-```
+![The operator at a glance: you write a Pet's spec, the controller watches it, creates the Pet's ConfigMap and Pod, and writes status back.](__static__/operator-overview.png)
 
 ::remark-box
 ---
@@ -322,6 +312,8 @@ done
 
 Look at the fourth one: a dragon with no `diet` at all. It gets the default `feedEvery: 10m`, and *then* fails the dragon rule.
 Defaulting always runs before validation.
+
+![What happens to a Pet on its way to etcd: decoding and pruning, defaulting, mutating webhooks, schema and CEL validation, validating webhooks, and only then storage.](__static__/request-pipeline.png)
 
 Now look at what the API server filled in for mochi. You never gave it a diet:
 
@@ -546,6 +538,8 @@ cat > internal/controller/pet_controller.go <<'EOF'
 EOF
 ```
 
+![What wakes the controller up: Pet events, events on owned objects, RequeueAfter timers and startup all put a name in the work queue, and Reconcile observes, computes, acts and reports.](__static__/reconcile-loop.png)
+
 Some things worth noticing:
 
 - **`Reconcile` receives only a name.** Not the event, not the diff, not the old object. Just like the bash loop, it looks at the current state and makes it right.
@@ -642,6 +636,8 @@ kubectl get pets -n zoo -w
 Then do nothing. Nobody touches the Pet, but after a minute its mood changes to `Hungry`,
 and after three minutes mochi runs away and its Pod is deleted.
 That's `RequeueAfter` at work: each reconcile asked to be called again exactly when the mood was due to change.
+
+![Mochi's hunger over time: Happy until feedEvery, Hungry until three times feedEvery, then it runs away and its Pod is deleted, until it's fed again. Reconcile runs on each feeding and on each RequeueAfter.](__static__/hunger-timeline.png)
 
 While you wait, watch the pet itself in another tab. The card updates within a minute or so of a mood change,
 because the kubelet refreshes mounted ConfigMaps periodically:
@@ -785,6 +781,8 @@ kubectl get pods,configmaps -n zoo
 Its Pod and card are gone too, and the operator did nothing: its `Reconcile` just got a "not found" and returned.
 The cleanup was done by Kubernetes' **garbage collector**, which deletes objects whose owner no longer exists.
 That's what the owner references were for.
+
+![Without owner references, the bash controller's Pod outlives its Pet forever. With them, deleting a Pet lets the garbage collector delete its Pod and ConfigMap.](__static__/ownership-gc.png)
 
 ::simple-task
 ---

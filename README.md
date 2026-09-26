@@ -9,6 +9,7 @@ Source for my [iximiuz Labs](https://labs.iximiuz.com/a/shiva-swaroop) content.
 | `challenges/<slug>/solution.md` | Reference solution write-up |
 | `challenges/<slug>/__static__/` | Cover and other static assets |
 | `dev/<slug>/` | Reference code and test harnesses (not published) |
+| `tools/diagrams/` | Excalidraw-style diagram sources and renderer (see its README) |
 | `docs/` | Research and roadmaps |
 
 ## Tutorials
