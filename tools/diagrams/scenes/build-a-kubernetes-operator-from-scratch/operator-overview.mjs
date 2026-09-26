@@ -2,7 +2,7 @@ import { INK, BLUE, SALMON, text, block, doc, cloud, person, curve } from "../_l
 
 export default {
   name: "operator-overview",
-  out: "tutorials/build-a-kubernetes-operator-from-scratch/__static__",
+  out: "tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c/__static__",
   elements: [
     text(660, 0, "A Pet Operator", { size: 48, align: "center" }),
 

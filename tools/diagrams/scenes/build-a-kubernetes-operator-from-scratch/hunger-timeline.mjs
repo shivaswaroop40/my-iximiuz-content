@@ -19,7 +19,7 @@ function band(id, from, to, label, o = {}) {
 
 export default {
   name: "hunger-timeline",
-  out: "tutorials/build-a-kubernetes-operator-from-scratch/__static__",
+  out: "tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c/__static__",
   elements: [
     text(620, -80, "mochi's day", { size: 40, align: "center" }),
 

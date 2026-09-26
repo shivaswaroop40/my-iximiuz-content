@@ -6,7 +6,10 @@ const mid = (i) => x(i) + W / 2;
 
 export default {
   name: "request-pipeline",
-  out: "tutorials/build-a-kubernetes-operator-from-scratch/__static__",
+  out: [
+    "tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c/__static__",
+    "tutorials/open-a-kubernetes-zoo-9ad54ae8/__static__",
+  ],
   elements: [
     text(700, 0, "What happens to a Pet on its way to etcd", { size: 40, align: "center" }),
 

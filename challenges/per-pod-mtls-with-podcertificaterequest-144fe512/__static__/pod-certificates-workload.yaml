@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: payments-api-nginx
+  namespace: payments
+data:
+  default.conf: |
+    server {
+      listen 8443 ssl;
+
+      ssl_certificate     /var/run/pod-identity/tls.crt;
+      ssl_certificate_key /var/run/pod-identity/tls.key;
+
+      # Server-side TLS only. Any pod that can reach this Service is served,
+      # with or without an identity of its own.
+      ssl_verify_client off;
+
+      location / {
+        default_type text/plain;
+        return 200 "payments-api ok\nclient-verify=$ssl_client_verify\n";
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payments-api
+  namespace: payments
+spec:
+  selector: {app: payments-api}
+  ports: [{port: 8443, targetPort: 8443}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+  namespace: payments
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: checkout}
+  template:
+    metadata:
+      labels: {app: checkout}
+    spec:
+      serviceAccountName: checkout
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values: ["node-01", "node-02"]
+      containers:
+        # The mirrored nginx image is reused as the client because it ships curl
+        # and is already present on both nodes for payments-api, so nothing is
+        # pulled from Docker Hub.
+        - name: curl
+          image: ghcr.io/iximiuz/labs/nginx:alpine
+          command: ["sleep", "infinity"]
+          volumeMounts:
+            - {name: ca, mountPath: /etc/pod-identity, readOnly: true}
+      volumes:
+        - name: ca
+          configMap: {name: pod-identity-ca}

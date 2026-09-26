@@ -2,7 +2,7 @@ import { INK, BLUE, SALMON, RED, MUTED, text, block, doc, cloud, bin, cross, cur
 
 export default {
   name: "ownership-gc",
-  out: "tutorials/build-a-kubernetes-operator-from-scratch/__static__",
+  out: "tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c/__static__",
   elements: [
     // Left: the bash controller leaves orphans
     text(200, 0, "bash controller", { size: 32, align: "center" }),

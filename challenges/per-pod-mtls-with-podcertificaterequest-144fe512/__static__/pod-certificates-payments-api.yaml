@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-api
+  namespace: payments
+spec:
+  replicas: 2
+  # One replica per worker node is enforced below with required anti-affinity,
+  # which leaves no spare node for a surge pod, and the pods start out
+  # unavailable, which leaves nothing for maxUnavailable to give up. A rolling
+  # update deadlocks either way, so this deployment replaces rather than rolls.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {app: payments-api}
+  template:
+    metadata:
+      labels: {app: payments-api}
+    spec:
+      serviceAccountName: payments-api
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values: ["node-01", "node-02"]
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels: {app: payments-api}
+      containers:
+        - name: nginx
+          image: ghcr.io/iximiuz/labs/nginx:alpine
+          ports: [{containerPort: 8443}]
+          volumeMounts:
+            - {name: pod-identity, mountPath: /var/run/pod-identity, readOnly: true}
+            - {name: ca, mountPath: /etc/pod-identity, readOnly: true}
+            - {name: conf, mountPath: /etc/nginx/conf.d, readOnly: true}
+      volumes:
+        - name: pod-identity
+          projected:
+            sources:
+              - podCertificate:
+                  signerName: pki.example.com/workload-identity
+                  keyType: ECDSAP256
+                  keyPath: tls.key
+                  certificateChainPath: tls.crt
+                  maxExpirationSeconds: 3600
+        - name: ca
+          configMap: {name: pod-identity-ca}
+        - name: conf
+          configMap: {name: payments-api-nginx}
