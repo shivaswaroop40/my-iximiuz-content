@@ -12,7 +12,7 @@ Source for my [iximiuz Labs](https://labs.iximiuz.com/a/shiva-swaroop) content.
 
 ## Challenges
 
-- [CKA Practice: Extend the Kubernetes API With a Validated CustomResourceDefinition](challenges/cka-practice-build-a-validated-crd/index.md) (draft)
+- [Extend the Kubernetes API With a Validated CustomResourceDefinition](challenges/build-a-validated-crd/index.md) (draft)
 
 ## Testing a challenge's checks locally
 
@@ -21,5 +21,5 @@ current kubectl context. CRD challenges only need an API server, so a bare `etcd
 (or kind, where it can run) is enough. Use a disposable cluster.
 
 ```sh
-dev/cka-practice-build-a-validated-crd/run-tests.sh
+dev/build-a-validated-crd/run-tests.sh
 ```

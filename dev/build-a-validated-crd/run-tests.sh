@@ -13,7 +13,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-INDEX="$HERE/../../challenges/cka-practice-build-a-validated-crd/index.md"
+INDEX="$HERE/../../challenges/build-a-validated-crd/index.md"
 WORK="$(mktemp -d)"
 export HOME="$WORK/home"   # init writes scenario files into $HOME
 mkdir -p "$HOME"

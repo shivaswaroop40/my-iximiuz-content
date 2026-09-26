@@ -1,7 +1,7 @@
 ---
 kind: challenge
 
-title: "CKA Practice: Extend the Kubernetes API With a Validated CustomResourceDefinition"
+title: "Extend the Kubernetes API With a Validated CustomResourceDefinition"
 
 description: |
   The platform team has signed off on a new BackupSchedule API, and app teams are already writing manifests for it.
@@ -12,7 +12,6 @@ categories:
 - kubernetes
 
 tagz:
-- cka
 - crd
 - custom-resources
 - cel

@@ -18,14 +18,14 @@ sandbox, so double-check the catalog for anything published recently._
 
 No challenge found where the learner **authors** a CRD: schema, validation, defaulting, CEL,
 subresources, printer columns, versioning. Everything on the platform consumes someone else's CRDs.
-It's also in the CKA curriculum ("understand CRDs, install and configure operators"),
-which fits the existing *CKA Practice* series.
+CRDs are how almost every tool extends Kubernetes, so the audience is anyone
+who installs operators or plans to write one, not only exam takers.
 
-## Roadmap: a "Custom Resources" track in the CKA Practice style
+## Roadmap: a "Custom Resources" series
 
 | # | Challenge | Skill | Difficulty | Status |
 |---|---|---|---|---|
-| 1 | **Extend the Kubernetes API With a Validated CRD** | names, structural schema, OpenAPI validation, CEL, defaults, status subresource, printer columns | Medium | ✅ drafted: `challenges/cka-practice-build-a-validated-crd` |
+| 1 | **Extend the Kubernetes API With a Validated CRD** | names, structural schema, OpenAPI validation, CEL, defaults, status subresource, printer columns | Medium | ✅ drafted: `challenges/build-a-validated-crd` |
 | 2 | Make a CRD field immutable and add a v1beta1 | CEL transition rules (`self == oldSelf`), multiple served versions, storage version switch, `status.storedVersions` | Medium/Hard | idea |
 | 3 | Namespace stuck in Terminating: orphaned custom resources | finalizers on CRs, a deleted controller, `kubectl patch` to remove finalizers safely, API discovery errors | Medium (troubleshooting, the series' signature style) | idea |
 | 4 | Who can read BackupSchedules? | ClusterRole aggregation (`aggregate-to-view/edit/admin`) for custom resources | Easy | idea |
