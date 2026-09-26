@@ -14,7 +14,7 @@ Every row of `~/pet-api.md` maps to one CRD feature:
 | status written only by the controller            | `subresources.status: {}`                                     |
 | `kubectl get` columns                            | `additionalPrinterColumns`                                    |
 
-```yaml
+```sh
 cat > ~/pet-crd.yaml <<'EOF'
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -108,7 +108,7 @@ A few things are easy to get wrong:
   it gets `feedEvery: 10m` from the default, and then fails the dragon rule.
   It's also why `self.diet.feedEvery` is always safe to read in the rule.
 - **`AGE` disappears** as soon as you define `additionalPrinterColumns`. Declare it yourself.
-- **The `status` schema** matters: undeclared status fields are pruned, silently.
+- **The `status` schema** matters: undeclared status fields are pruned by the API server (kubectl only prints a warning).
 
 ## 2. Test against the paperwork
 

@@ -34,6 +34,7 @@ tasks:
     init: true
     machine: dev-machine
     user: root
+    timeout_seconds: 900
     run: |
       set -euo pipefail
       if ! /usr/local/go/bin/go version 2>/dev/null | grep -q 'go1\.26'; then
@@ -53,9 +54,14 @@ tasks:
     init: true
     machine: dev-machine
     user: laborant
+    timeout_seconds: 900
     run: |
       set -euo pipefail
-      until kubectl get --raw /readyz >/dev/null 2>&1; do sleep 2; done
+      for i in $(seq 1 400); do
+        kubectl get --raw /readyz >/dev/null 2>&1 && break
+        sleep 2
+      done
+      kubectl get --raw /readyz >/dev/null
       kubectl get namespace zoo >/dev/null 2>&1 || kubectl create namespace zoo
       mkdir -p "$HOME/pet-operator/config"
 
@@ -174,6 +180,7 @@ Basic `kubectl` is enough.
 ::
 
 The playground has a multi-node Kubernetes cluster, and `kubectl` is ready to go on the `dev-machine`.
+If the playground asks you to pick a networking plugin, keep the default (flannel): the pets need running Pods.
 There's an empty `zoo` namespace waiting for its first resident.
 
 ## Part 1: The API
@@ -356,7 +363,7 @@ kubectl apply -f ~/pet-operator/config/crd-by-hand.yaml
 | Piece | What the API server does with it |
 |---|---|
 | `shortNames`, `categories` | `kubectl get pt` and `kubectl get zoo` work. Pure convenience, but it's what people actually type. |
-| `openAPIV3Schema` with `type`, `required`, `enum`, `maxLength`, `pattern`, `format` | Rejects bad objects **before** they reach etcd. Unknown fields are pruned. |
+| `openAPIV3Schema` with `type`, `required`, `enum`, `maxLength`, `pattern`, `format` | Rejects bad objects **before** they reach etcd. Unknown fields are rejected by `kubectl` and pruned for less strict clients. |
 | `x-kubernetes-validations` | [CEL](https://kubernetes.io/docs/reference/using-api/cel/) rules for what OpenAPI can't express, like "a cactus can't have a toy". The rules sit on `spec` because each one needs to see two fields. |
 | `duration(...)` | CEL can parse durations. Compared as strings, `'59m' >= '1h'` would be true! A second rule keeps `feedEvery` between `1s` and a year: the pattern alone would let through `0s` or `9999999h`, which the controller couldn't use. |
 | `default` | Fills in missing fields, so every client (and your controller!) sees the same complete object. |
@@ -445,7 +452,7 @@ EOF
 chmod +x ~/naive-controller.sh
 ```
 
-Open a second terminal tab and run it:
+Open a second terminal tab (the **+** next to the terminal tabs) and run it:
 
 ```sh
 ~/naive-controller.sh
@@ -455,6 +462,7 @@ Back in the first tab:
 
 ```sh
 kubectl get pods -n zoo
+kubectl wait -n zoo --for=condition=Ready pod/mochi --timeout=90s
 kubectl logs -n zoo mochi
 ```
 
@@ -474,7 +482,7 @@ Now delete the Pod and watch it come back within a few seconds:
 
 ```sh
 kubectl delete pod -n zoo mochi
-kubectl get pods -n zoo -w
+kubectl get pods -n zoo -w    # Ctrl+C to stop watching
 ```
 
 This is the most important idea in Kubernetes. The script never asked *what happened?* It only asked *what should exist?*
@@ -524,7 +532,7 @@ The `goldie` Pod is still there, an orphan. The script only knows how to add thi
   You'll see how a real controller solves that.
 
 Stop the script with `Ctrl+C` in the second tab, and clean up after it.
-(If you forget, the operator in Part 3 will refuse to move mochi into a Pod it doesn't own, and tell you so in the Pet's status.)
+(If you forget, the operator in Part 3 will refuse to move mochi into a Pod it doesn't own, and tell you so in the Pet's status once mochi is fed.)
 
 ```sh
 kubectl delete pods -n zoo --all
@@ -697,6 +705,7 @@ diff <(kubectl create --dry-run=client -o yaml -f config/crd-by-hand.yaml) \
 The whole `spec` schema (validation rules, defaults, the CEL rules) and the names are identical.
 The differences are descriptions (taken from the Go comments), the new status fields,
 and small details controller-gen always adds, like `listKind`.
+One difference changes behaviour: `spec` is now `required`, because the Go field has no `omitempty`. A Pet with no spec at all is rejected.
 
 ::remark-box
 ---
@@ -774,7 +783,8 @@ func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	if pet.Spec.LastFedAt != nil {
 		lastFed = pet.Spec.LastFedAt.Time
 	}
-	mood, moodChangesAt := moodAt(time.Now(), lastFed, feedEvery)
+	now := time.Now()
+	mood, moodChangesAt := moodAt(now, lastFed, feedEvery)
 
 	// 2. Act: the ConfigMap holds the pet's "card", the Pod shows it.
 	card := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: pet.Name + "-card", Namespace: pet.Namespace}}
@@ -818,7 +828,8 @@ func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	// We only watch Pods we own, so nothing tells us when someone else's Pod goes away. Check back.
+	// The cache sees every Pod, but only events on Pods we own queue a reconcile,
+	// so nothing tells us when someone else's Pod goes away. Check back.
 	if nameTaken {
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
@@ -827,7 +838,7 @@ func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	if moodChangesAt.IsZero() {
 		return ctrl.Result{}, nil
 	}
-	return ctrl.Result{RequeueAfter: time.Until(moodChangesAt) + time.Second}, nil
+	return ctrl.Result{RequeueAfter: moodChangesAt.Sub(now) + time.Second}, nil
 }
 
 // moodAt: fed less than feedEvery ago is Happy, less than 3x feedEvery is Hungry,
@@ -904,7 +915,10 @@ func (r *PetReconciler) reconcilePod(ctx context.Context, pet *zoov1alpha1.Pet, 
 	if err := controllerutil.SetControllerReference(pet, &pod, r.Scheme); err != nil {
 		return "", false, err
 	}
-	if err := r.Create(ctx, &pod); err != nil {
+	if err := r.Create(ctx, &pod); apierrors.IsAlreadyExists(err) {
+		// The cache hasn't seen the Pod we created a moment ago yet. The next reconcile will.
+		return pod.Name, false, nil
+	} else if err != nil {
 		return "", false, err
 	}
 	r.Recorder.Eventf(pet, &pod, corev1.EventTypeNormal, "MovedIn", "CreatePod", "%s moved into Pod %s", pet.Name, pod.Name)
@@ -1054,10 +1068,11 @@ Operators normally run inside the cluster. During development it's much faster t
 
 ```sh
 go mod tidy
-go run .
+go build -o pet-operator . && ./pet-operator
 ```
 
-Leave it running. From now on, use the other terminal tab.
+The first build takes a couple of minutes: it compiles client-go and controller-runtime.
+Leave the operator running. From now on, use the other terminal tab.
 
 Mochi has been waiting since Part 1, and nobody has fed it. It gets hungry 10 minutes after being fed (or, if it never was, after being adopted),
 and it runs away after 30. Depending on how long you took to get here, it might be happy, hungry, or already gone:
@@ -1069,7 +1084,7 @@ kubectl get pets,pods -n zoo
 Whatever happened, feeding fixes it. Add a little helper to your shell. It sets `lastFedAt` to the current time:
 
 ```sh
-cat >> ~/.bashrc <<'EOF'
+grep -q '^feed()' ~/.bashrc || cat >> ~/.bashrc <<'EOF'
 feed() {
   kubectl patch pet "$1" -n zoo --type=merge \
     -p "{\"spec\":{\"lastFedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}"
@@ -1091,6 +1106,7 @@ kubectl get pet -n zoo mochi -o jsonpath='{.status}' | python3 -m json.tool
 Once the Pod is running, say hi:
 
 ```sh
+kubectl wait -n zoo --for=condition=Ready pod/mochi --timeout=90s
 kubectl logs -n zoo mochi
 ```
 
@@ -1117,7 +1133,7 @@ Ten minutes is a long time to wait. Put mochi on a faster metabolism, and feed i
 ```sh
 kubectl patch pet -n zoo mochi --type=merge -p '{"spec":{"diet":{"feedEvery":"1m"}}}'
 feed mochi
-kubectl get pets -n zoo -w
+kubectl get pets -n zoo -w    # Ctrl+C to stop watching
 ```
 
 Then do nothing. Nobody touches the Pet, but after a minute its mood changes to `Hungry`,
@@ -1126,7 +1142,7 @@ That's `RequeueAfter` at work: each reconcile asked to be called again exactly w
 
 ![Mochi's hunger over time: Happy until feedEvery, Hungry until three times feedEvery, then it runs away and its Pod is deleted, until it's fed again. Reconcile runs on each feeding and on each RequeueAfter.](__static__/hunger-timeline.png)
 
-While you wait, watch the pet itself in another tab. The card updates within a minute or so of a mood change,
+While you wait, watch the pet itself in another tab. The card updates within a minute or two of a mood change,
 because the kubelet refreshes mounted ConfigMaps periodically:
 
 ```sh
@@ -1176,7 +1192,7 @@ feed mochi
 
 ```sh
 kubectl delete pod -n zoo mochi
-kubectl get pods -n zoo -w
+kubectl get pods -n zoo -w    # Ctrl+C to stop watching
 ```
 
 ### Drift is reverted
@@ -1213,7 +1229,7 @@ kubectl patch pet -n zoo mochi --type=merge -p '{"spec":{"toy":"cardboard box"}}
 kubectl get configmap -n zoo mochi-card -o jsonpath='{.data.card}'   # still the laser pointer
 ```
 
-Start it again with `go run .` and check once more. On startup the cache LISTs everything, and every object gets reconciled.
+Start it again with `./pet-operator` and check once more. On startup the cache LISTs everything, and every object gets reconciled.
 No event was "missed", because the controller never depended on events in the first place.
 
 ::details-box
@@ -1305,7 +1321,7 @@ Production operators typically add:
   If each pet had an account in some external "pet registry", a finalizer would make sure it's deregistered before the Pet disappears.
 - **RBAC and in-cluster deployment.** A ServiceAccount, a ClusterRole generated from `+kubebuilder:rbac` markers, and a Deployment running the image.
 - **Predicates**, such as `GenerationChangedPredicate`, to skip reconciles that can't change anything, like the one triggered by our own status update.
-- **Tests** with `envtest`, which runs a real kube-apiserver and etcd, just like the one this tutorial's checks were developed against.
+- **Tests** with `envtest`, which runs a real kube-apiserver and etcd.
 - **Admission webhooks** for validation or defaulting that CEL can't express.
 - **Scaffolding.** [Kubebuilder](https://book.kubebuilder.io/) generates this whole layout (plus Makefiles, Dockerfiles and kustomize) with `kubebuilder init` and `kubebuilder create api`. Now you know what every generated file is for.
 

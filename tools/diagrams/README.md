@@ -20,7 +20,7 @@ npm run build                 # all diagrams
 npm run build -- hunger       # only scenes whose path contains "hunger"
 ```
 
-It needs a Chromium; set `CHROMIUM_PATH` if it isn't at `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`.
+It needs a Chromium. Get one with `npx playwright install chromium` and point `CHROMIUM_PATH` at it (the default is `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`).
 
 Embed a diagram in markdown with alt text that says what it shows:
 

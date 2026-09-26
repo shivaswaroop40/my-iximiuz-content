@@ -32,10 +32,15 @@ tasks:
     init: true
     machine: dev-machine
     user: laborant
+    timeout_seconds: 900
     run: |
       set -euo pipefail
 
-      until kubectl get --raw /readyz >/dev/null 2>&1; do sleep 2; done
+      for i in $(seq 1 400); do
+        kubectl get --raw /readyz >/dev/null 2>&1 && break
+        sleep 2
+      done
+      kubectl get --raw /readyz >/dev/null
       kubectl get namespace zoo >/dev/null 2>&1 || kubectl create namespace zoo
 
       mkdir -p "$HOME/pets/adopted" "$HOME/pets/turned-away"
@@ -315,6 +320,7 @@ tasks:
         '{"species":"cat","diet":{"feedEvery":"0s"}}'
         '{"species":"cat","diet":{"feedEvery":"8761h"}}'
         '{"species":"cat","diet":{"feedEvery":"9999999h"}}'
+        '{"species":"cat","diet":{"feedEvery":"00000000001h"}}'
       )
       try '{"species":"cat"}' || exit 1
       for spec in "${BAD[@]}"; do try "$spec" && exit 1; done
@@ -339,6 +345,7 @@ tasks:
         'spec.diet.feedEvery is "0s" (the pet would never be full)|{"species":"cat","diet":{"feedEvery":"0s"}}'
         'spec.diet.feedEvery is "8761h", just over a year|{"species":"cat","diet":{"feedEvery":"8761h"}}'
         'spec.diet.feedEvery is "9999999h", more than a controller can even count|{"species":"cat","diet":{"feedEvery":"9999999h"}}'
+        'spec.diet.feedEvery is "00000000001h", 12 characters long|{"species":"cat","diet":{"feedEvery":"00000000001h"}}'
       )
       for c in "${BAD[@]}"; do
         if try "${c#*|}"; then
@@ -372,9 +379,10 @@ tasks:
         printf '{"apiVersion":"zoo.example.com/v1alpha1","kind":"Pet","metadata":{"generateName":"verify-","namespace":"default"},"spec":%s}' "$1" \
           | kubectl create --dry-run=server -o name -f - 2>&1
       }
+      kubectl get crd pets.zoo.example.com >/dev/null 2>&1 || exit 0
       if out=$(try '{"species":"cactus","toy":"ball"}'); then
         echo "A cactus with a toy is still accepted."
-        echo "OpenAPI can't say 'this field is forbidden only if another field has a certain value'. What else can the API server evaluate?"
+        echo "'This field is forbidden only if another field has a certain value' is awkward to say in OpenAPI. What else can the API server evaluate?"
       elif ! echo "$out" | grep -qi toy; then
         echo "A cactus with a toy is rejected, but the error message should mention the toy."
       elif try '{"species":"dragon","diet":{"feedEvery":"59m"}}' >/dev/null; then
@@ -411,9 +419,16 @@ tasks:
       if [ -z "$food$every" ]; then
         echo "A Pet with no diet block comes back with no diet at all."
         echo "A default on a nested field only kicks in if its parent object exists..."
-      else
+      elif [ "$food" != "snacks" ] || [ "$every" != "10m" ]; then
         [ "$food" = "snacks" ] || echo "A Pet without a diet should get diet.food: snacks, but got '${food}'."
         [ "$every" = "10m" ] || echo "A Pet without a diet should get diet.feedEvery: 10m, but got '${every}'."
+      else
+        part=$(printf '{"apiVersion":"zoo.example.com/v1alpha1","kind":"Pet","metadata":{"generateName":"verify-","namespace":"default"},"spec":{"species":"cat","diet":{"food":"fish"}}}' \
+          | kubectl create --dry-run=server -f - -o jsonpath='{.spec.diet.feedEvery}' 2>/dev/null)
+        if [ "$part" != "10m" ]; then
+          echo "A Pet with diet: {food: fish} comes back without feedEvery."
+          echo "A default on diet itself only applies when diet is missing. Each field needs its own default too."
+        fi
       fi
       exit 0
 
@@ -490,14 +505,21 @@ tasks:
       [ "$(q smaug '{.spec.species}/{.spec.diet.food}/{.spec.diet.feedEvery}')" = "dragon/sheep/6h" ] || exit 1
       [ "$(q prickles '{.spec.species}/{.spec.diet.food}/{.spec.diet.feedEvery}')" = "cactus/water/168h" ] || exit 1
       [ "$(kubectl get pets -n zoo -o name 2>/dev/null | wc -l)" -eq 4 ] || exit 1
+      # The CRD that let them in must still enforce the rules.
+      for bad in '{"species":"unicorn"}' '{"species":"cactus","toy":"ball"}' '{"species":"dragon","diet":{"feedEvery":"59m"}}'; do
+        printf '{"apiVersion":"zoo.example.com/v1alpha1","kind":"Pet","metadata":{"generateName":"verify-","namespace":"default"},"spec":%s}' "$bad" \
+          | kubectl create --dry-run=server -o name -f - >/dev/null 2>&1 && exit 1
+      done
+      exit 0
     hintcheck: |
       n=$(kubectl get pets -n zoo -o name 2>/dev/null | wc -l)
       if [ "$n" -gt 4 ]; then
         echo "There are $n Pets in the zoo namespace, but only the four from ~/pets/adopted/ belong there."
       else
         for name in mochi rex smaug prickles; do
-          kubectl get pet -n zoo "$name" >/dev/null 2>&1 || { echo "Pet zoo/$name doesn't exist yet."; break; }
+          kubectl get pet -n zoo "$name" >/dev/null 2>&1 || { echo "Pet zoo/$name doesn't exist yet."; exit 0; }
         done
+        echo "All four Pets are in, but the CRD no longer turns away a unicorn, a cactus with a toy, or a dragon that eats every 59m. Did a later edit drop a rule?"
       fi
       exit 0
 
@@ -518,6 +540,7 @@ tasks:
         echo "mochi's spec has been changed since it was created (generation $gen). Delete and re-apply it from ~/pets/adopted/, then write only its status."
       elif [ "$got" = "/" ]; then
         echo "mochi has no status yet. A plain 'kubectl apply' or 'kubectl edit' won't write it. Which kubectl flag targets a subresource?"
+        echo "If you already used it, check that the CRD schema still describes .status.mood and .status.face: undeclared fields are dropped."
       else
         echo "mochi's status is '$got', expected mood Happy and face 😺."
       fi
@@ -645,7 +668,7 @@ kubectl apply --dry-run=server -f ~/pets/turned-away/
 ```
 ::
 
-The house rules don't fit into a plain OpenAPI schema: whether `toy` is allowed depends on `species`,
+The house rules are awkward to express in a plain OpenAPI schema: whether `toy` is allowed depends on `species`,
 and "at least an hour" means comparing durations, not strings.
 
 ::simple-task
@@ -670,7 +693,8 @@ Look for `x-kubernetes-validations`. A rule attached to `spec` can see all of sp
 and the [Kubernetes CEL libraries](https://kubernetes.io/docs/reference/using-api/cel/) include a `duration()` function.
 ::
 
-Keepers shouldn't have to spell out the obvious. A Pet with only a `species` must come back from the API server with the default diet from the spec.
+Keepers shouldn't have to spell out the obvious. A Pet with only a `species` must come back from the API server with the default diet from the spec,
+and a Pet that gives only part of its diet (say, just `food`) must get the missing field filled in too.
 
 ::simple-task
 ---

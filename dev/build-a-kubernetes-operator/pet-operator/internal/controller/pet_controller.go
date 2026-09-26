@@ -55,7 +55,8 @@ func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	if pet.Spec.LastFedAt != nil {
 		lastFed = pet.Spec.LastFedAt.Time
 	}
-	mood, moodChangesAt := moodAt(time.Now(), lastFed, feedEvery)
+	now := time.Now()
+	mood, moodChangesAt := moodAt(now, lastFed, feedEvery)
 
 	// 2. Act: the ConfigMap holds the pet's "card", the Pod shows it.
 	card := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: pet.Name + "-card", Namespace: pet.Namespace}}
@@ -99,7 +100,8 @@ func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	// We only watch Pods we own, so nothing tells us when someone else's Pod goes away. Check back.
+	// The cache sees every Pod, but only events on Pods we own queue a reconcile,
+	// so nothing tells us when someone else's Pod goes away. Check back.
 	if nameTaken {
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
@@ -108,7 +110,7 @@ func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	if moodChangesAt.IsZero() {
 		return ctrl.Result{}, nil
 	}
-	return ctrl.Result{RequeueAfter: time.Until(moodChangesAt) + time.Second}, nil
+	return ctrl.Result{RequeueAfter: moodChangesAt.Sub(now) + time.Second}, nil
 }
 
 // moodAt: fed less than feedEvery ago is Happy, less than 3x feedEvery is Hungry,
@@ -185,7 +187,10 @@ func (r *PetReconciler) reconcilePod(ctx context.Context, pet *zoov1alpha1.Pet, 
 	if err := controllerutil.SetControllerReference(pet, &pod, r.Scheme); err != nil {
 		return "", false, err
 	}
-	if err := r.Create(ctx, &pod); err != nil {
+	if err := r.Create(ctx, &pod); apierrors.IsAlreadyExists(err) {
+		// The cache hasn't seen the Pod we created a moment ago yet. The next reconcile will.
+		return pod.Name, false, nil
+	} else if err != nil {
 		return "", false, err
 	}
 	r.Recorder.Eventf(pet, &pod, corev1.EventTypeNormal, "MovedIn", "CreatePod", "%s moved into Pod %s", pet.Name, pod.Name)
