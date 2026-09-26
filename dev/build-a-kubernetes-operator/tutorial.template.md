@@ -394,10 +394,11 @@ Waiting for the bash controller to give mochi a Pod...
 Your Pet just caused something to happen in the cluster.
 ::
 
-Now delete the Pod and watch it come back within a few seconds:
+Now delete the Pod and watch it come back within a few seconds.
+(The shell loop in the Pod ignores the polite stop signal, so `--grace-period=1` saves you a 30-second wait.)
 
 ```sh
-kubectl delete pod -n zoo mochi
+kubectl delete pod -n zoo mochi --grace-period=1
 kubectl get pods -n zoo -w    # Ctrl+C to stop watching
 ```
 
@@ -451,7 +452,7 @@ Stop the script with `Ctrl+C` in the second tab, and clean up after it.
 (If you forget, the operator in Part 3 will refuse to move mochi into a Pod it doesn't own, and tell you so in the Pet's status once mochi is fed.)
 
 ```sh
-kubectl delete pods -n zoo --all
+kubectl delete pods -n zoo --all --grace-period=1
 ```
 
 ## Part 3: A real controller in Go

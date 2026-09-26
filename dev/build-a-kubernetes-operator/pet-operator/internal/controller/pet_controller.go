@@ -100,17 +100,17 @@ func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	// The cache sees every Pod, but only events on Pods we own queue a reconcile,
-	// so nothing tells us when someone else's Pod goes away. Check back.
-	if nameTaken {
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-	}
-
 	// 4. Come back when the mood is due to change, even if nothing else happens.
-	if moodChangesAt.IsZero() {
-		return ctrl.Result{}, nil
+	var wake time.Duration
+	if !moodChangesAt.IsZero() {
+		wake = moodChangesAt.Sub(now) + time.Second
 	}
-	return ctrl.Result{RequeueAfter: moodChangesAt.Sub(now) + time.Second}, nil
+	// The cache sees every Pod, but only events on Pods we own queue a reconcile,
+	// so nothing tells us when someone else's Pod goes away. Check back soon.
+	if nameTaken && (wake == 0 || wake > 10*time.Second) {
+		wake = 10 * time.Second
+	}
+	return ctrl.Result{RequeueAfter: wake}, nil
 }
 
 // moodAt: fed less than feedEvery ago is Happy, less than 3x feedEvery is Hungry,

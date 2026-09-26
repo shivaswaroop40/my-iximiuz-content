@@ -144,7 +144,7 @@ chmod +x "$HOME/naive-controller.sh"
 NAIVE_PID=$!
 check pass verify_naive_controller
 uid=$(jp pod mochi '{.metadata.uid}')
-kubectl delete pod -n $N mochi --wait=false >/dev/null
+kubectl delete pod -n $N mochi --grace-period=1 --wait=false >/dev/null
 assert "naive controller recreates a deleted Pod" bash -c "u=\$(kubectl get pod -n $N mochi -o jsonpath='{.metadata.uid}'); [ -n \"\$u\" ] && [ \"\$u\" != '$uid' ]"
 kubectl patch pet -n $N mochi --type=merge -p '{"spec":{"species":"dog"}}' >/dev/null; sleep 7
 assert "species change is NOT picked up (the flaw)" has pod mochi '{.spec.containers[0].args}' 'I am mochi the cat'
@@ -159,7 +159,7 @@ assert "naive controller gives goldie a Pod" kubectl get pod -n $N goldie
 kubectl delete pet -n $N goldie >/dev/null; sleep 6
 assert "goldie's Pod is orphaned" kubectl get pod -n $N goldie
 stop_naive
-kubectl delete pods -n $N --all >/dev/null
+kubectl delete pods -n $N --all --grace-period=1 >/dev/null
 
 echo "== part 3: build the operator from the tutorial's code"
 cd "$HOME/pet-operator"
@@ -200,7 +200,7 @@ assert "operator reports PodNameTaken" is pet mochi '{.status.conditions[?(@.typ
 assert "PodNameTaken warning event recorded" bash -c "kubectl get events -n $N --field-selector reason=PodNameTaken -o name | grep -q ."
 assert "the foreign Pod is left alone" bash -c "p=\$(kubectl get pod -n $N mochi -o jsonpath='{.metadata.uid}/{.metadata.ownerReferences}'); [ -n \"\$p\" ] && [ \"\${p#*/}\" = '' ]"
 check fail verify_operator_adopted
-kubectl delete pod -n $N mochi --wait=false >/dev/null
+kubectl delete pod -n $N mochi --wait=true --timeout=90s >/dev/null   # a real kubelet takes the grace period
 check pass verify_operator_adopted
 assert "card shows the ASCII cat" has configmap mochi-card '{.data.card}' '( ^.^ )'
 

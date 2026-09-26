@@ -478,10 +478,11 @@ Waiting for the bash controller to give mochi a Pod...
 Your Pet just caused something to happen in the cluster.
 ::
 
-Now delete the Pod and watch it come back within a few seconds:
+Now delete the Pod and watch it come back within a few seconds.
+(The shell loop in the Pod ignores the polite stop signal, so `--grace-period=1` saves you a 30-second wait.)
 
 ```sh
-kubectl delete pod -n zoo mochi
+kubectl delete pod -n zoo mochi --grace-period=1
 kubectl get pods -n zoo -w    # Ctrl+C to stop watching
 ```
 
@@ -535,7 +536,7 @@ Stop the script with `Ctrl+C` in the second tab, and clean up after it.
 (If you forget, the operator in Part 3 will refuse to move mochi into a Pod it doesn't own, and tell you so in the Pet's status once mochi is fed.)
 
 ```sh
-kubectl delete pods -n zoo --all
+kubectl delete pods -n zoo --all --grace-period=1
 ```
 
 ## Part 3: A real controller in Go
@@ -828,17 +829,17 @@ func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	// The cache sees every Pod, but only events on Pods we own queue a reconcile,
-	// so nothing tells us when someone else's Pod goes away. Check back.
-	if nameTaken {
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-	}
-
 	// 4. Come back when the mood is due to change, even if nothing else happens.
-	if moodChangesAt.IsZero() {
-		return ctrl.Result{}, nil
+	var wake time.Duration
+	if !moodChangesAt.IsZero() {
+		wake = moodChangesAt.Sub(now) + time.Second
 	}
-	return ctrl.Result{RequeueAfter: moodChangesAt.Sub(now) + time.Second}, nil
+	// The cache sees every Pod, but only events on Pods we own queue a reconcile,
+	// so nothing tells us when someone else's Pod goes away. Check back soon.
+	if nameTaken && (wake == 0 || wake > 10*time.Second) {
+		wake = 10 * time.Second
+	}
+	return ctrl.Result{RequeueAfter: wake}, nil
 }
 
 // moodAt: fed less than feedEvery ago is Happy, less than 3x feedEvery is Hungry,
