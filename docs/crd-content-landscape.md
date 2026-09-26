@@ -25,11 +25,11 @@ who installs operators or plans to write one, not only exam takers.
 
 | # | Challenge | Skill | Difficulty | Status |
 |---|---|---|---|---|
-| 1 | **Extend the Kubernetes API With a Validated CRD** | names, structural schema, OpenAPI validation, CEL, defaults, status subresource, printer columns | Medium | ✅ drafted: `challenges/build-a-validated-crd` |
+| 1 | **Open a Kubernetes Zoo: Design a Validated Pet CRD** | names, structural schema, OpenAPI validation, CEL (incl. `duration()`), defaults before validation, status subresource, printer columns | Medium | ✅ drafted: `challenges/adopt-a-pet-crd` |
 | 2 | Make a CRD field immutable and add a v1beta1 | CEL transition rules (`self == oldSelf`), multiple served versions, storage version switch, `status.storedVersions` | Medium/Hard | idea |
 | 3 | Namespace stuck in Terminating: orphaned custom resources | finalizers on CRs, a deleted controller, `kubectl patch` to remove finalizers safely, API discovery errors | Medium (troubleshooting, the series' signature style) | idea |
-| 4 | Who can read BackupSchedules? | ClusterRole aggregation (`aggregate-to-view/edit/admin`) for custom resources | Easy | idea |
-| 5 | **Build a Kubernetes Operator From Scratch** (tutorial) | CRD by hand, a bash reconcile loop, then Go + controller-runtime: markers and controller-gen, CreateOrUpdate, owner references and GC, `Owns()` self-healing, status and conditions, `observedGeneration`, restart catch-up | Medium | ✅ drafted: `tutorials/build-a-kubernetes-operator-from-scratch` |
+| 4 | Who can see the Pets? | ClusterRole aggregation (`aggregate-to-view/edit/admin`) for custom resources | Easy | idea |
+| 5 | **Build a Kubernetes Operator From Scratch: A Pet That Gets Hungry** (tutorial) | CRD by hand, a bash reconcile loop, then Go + controller-runtime: markers and controller-gen, CreateOrUpdate, create-only children, owner references and GC, `Owns()` self-healing, `RequeueAfter` for time-based state, status and conditions, `observedGeneration`, events, restart catch-up | Medium | ✅ drafted: `tutorials/build-a-kubernetes-operator-from-scratch` |
 
-All five share the same `BackupSchedule` API, so they can later be bundled into a
+All five share the same `Pet` API (group `zoo.example.com`), so they can later be bundled into a
 skill path or a short course, with each challenge's end state as the next one's init state.

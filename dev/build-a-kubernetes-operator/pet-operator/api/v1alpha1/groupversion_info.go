@@ -1,6 +1,6 @@
-// Package v1alpha1 contains the BackupSchedule API.
+// Package v1alpha1 contains the Pet API.
 // +kubebuilder:object:generate=true
-// +groupName=platform.example.com
+// +groupName=zoo.example.com
 package v1alpha1
 
 import (
@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	GroupVersion  = schema.GroupVersion{Group: "platform.example.com", Version: "v1alpha1"}
+	GroupVersion  = schema.GroupVersion{Group: "zoo.example.com", Version: "v1alpha1"}
 	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}
 	AddToScheme   = SchemeBuilder.AddToScheme
 )

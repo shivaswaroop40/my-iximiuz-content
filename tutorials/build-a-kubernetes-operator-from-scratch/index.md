@@ -1,12 +1,13 @@
 ---
 kind: tutorial
 
-title: "Build a Kubernetes Operator From Scratch: CRD, Controller, and the Reconcile Loop"
+title: "Build a Kubernetes Operator From Scratch: A Pet That Gets Hungry"
 
 description: |
-  Design a BackupSchedule API with a CustomResourceDefinition, then bring it to life:
+  Design a Pet API with a CustomResourceDefinition, then bring it to life:
   first with a 15-line bash loop, then with a real Go controller built on controller-runtime.
-  Watch the reconcile loop create, update, self-heal, report status, survive restarts, and clean up after itself.
+  Your pet lives in a Pod, gets hungry as time passes, and runs away if you forget to feed it.
+  Along the way you'll see the reconcile loop create, heal, report status, wake itself up, survive restarts, and clean up after itself.
 
 categories:
 - kubernetes
@@ -35,14 +36,14 @@ tasks:
     user: root
     run: |
       set -euo pipefail
-      if ! /usr/local/go/bin/go version 2>/dev/null | grep -q 'go1\.24'; then
+      if ! /usr/local/go/bin/go version 2>/dev/null | grep -q 'go1\.26'; then
         case "$(uname -m)" in
           x86_64) arch=amd64 ;;
           aarch64|arm64) arch=arm64 ;;
           *) echo "unsupported arch $(uname -m)"; exit 1 ;;
         esac
         rm -rf /usr/local/go
-        curl -fsSL "https://go.dev/dl/go1.24.7.linux-${arch}.tar.gz" | tar -C /usr/local -xz
+        curl -fsSL "https://go.dev/dl/go1.26.8.linux-${arch}.tar.gz" | tar -C /usr/local -xz
       fi
       echo 'export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin' > /etc/profile.d/go.sh
       grep -q '/usr/local/go/bin' /home/laborant/.bashrc \
@@ -55,45 +56,15 @@ tasks:
     run: |
       set -euo pipefail
       until kubectl get --raw /readyz >/dev/null 2>&1; do sleep 2; done
-      kubectl get namespace payments >/dev/null 2>&1 || kubectl create namespace payments
-
-      # A volume for our "database", so the backup jobs have something real to read.
-      kubectl apply -f - <<'EOF'
-      apiVersion: v1
-      kind: PersistentVolume
-      metadata:
-        name: orders-db-data
-      spec:
-        capacity:
-          storage: 1Gi
-        accessModes: [ReadWriteOnce]
-        storageClassName: ""
-        hostPath:
-          path: /var/lib/backup-demo/orders-db
-          type: DirectoryOrCreate
-      ---
-      apiVersion: v1
-      kind: PersistentVolumeClaim
-      metadata:
-        name: orders-db-data
-        namespace: payments
-      spec:
-        accessModes: [ReadWriteOnce]
-        storageClassName: ""
-        volumeName: orders-db-data
-        resources:
-          requests:
-            storage: 1Gi
-      EOF
-
-      mkdir -p "$HOME/backup-operator/config"
+      kubectl get namespace zoo >/dev/null 2>&1 || kubectl create namespace zoo
+      mkdir -p "$HOME/pet-operator/config"
 
   verify_crd_minimal:
     machine: dev-machine
     user: laborant
     run: |
-      [ "$(kubectl get crd backupschedules.platform.example.com -o jsonpath='{.status.conditions[?(@.type=="Established")].status}' 2>/dev/null)" = "True" ] || exit 1
-      kubectl get backupschedules -n payments orders-db-nightly >/dev/null 2>&1
+      [ "$(kubectl get crd pets.zoo.example.com -o jsonpath='{.status.conditions[?(@.type=="Established")].status}' 2>/dev/null)" = "True" ] || exit 1
+      kubectl get pets -n zoo mochi >/dev/null 2>&1
 
   verify_crd_full:
     machine: dev-machine
@@ -102,14 +73,15 @@ tasks:
     - verify_crd_minimal
     run: |
       try() {
-        printf '{"apiVersion":"platform.example.com/v1alpha1","kind":"BackupSchedule","metadata":{"generateName":"verify-","namespace":"default"},"spec":%s}' "$1" \
+        printf '{"apiVersion":"zoo.example.com/v1alpha1","kind":"Pet","metadata":{"generateName":"verify-","namespace":"default"},"spec":%s}' "$1" \
           | kubectl create --dry-run=server -f - -o "${2:-name}" 2>/dev/null
       }
-      [ "$(try '{"schedule":"0 2 * * *","source":{"pvcName":"d"}}' 'jsonpath={.spec.method}/{.spec.retention.keepLast}')" = "snapshot/7" ] || exit 1
-      try '{"schedule":"0 2 * * *","source":{"pvcName":"d"},"retention":{"keepLast":45}}' >/dev/null && exit 1
-      try '{"schedule":"0 2 * * *","source":{"pvcName":"d"},"method":"restic"}' >/dev/null && exit 1
-      try '{"schedule":"nightly","source":{"pvcName":"d"}}' >/dev/null && exit 1
-      [ -n "$(kubectl get crd backupschedules.platform.example.com -o jsonpath='{.spec.versions[0].subresources.status}')" ]
+      [ "$(try '{"species":"cat"}' 'jsonpath={.spec.diet.food}/{.spec.diet.feedEvery}')" = "snacks/10m" ] || exit 1
+      try '{"species":"unicorn"}' >/dev/null && exit 1
+      try '{"species":"cactus","toy":"ball"}' >/dev/null && exit 1
+      try '{"species":"dragon","diet":{"feedEvery":"15m"}}' >/dev/null && exit 1
+      try '{"species":"cat","diet":{"feedEvery":"whenever"}}' >/dev/null && exit 1
+      [ -n "$(kubectl get crd pets.zoo.example.com -o jsonpath='{.spec.versions[0].subresources.status}')" ]
 
   verify_naive_controller:
     machine: dev-machine
@@ -117,44 +89,61 @@ tasks:
     needs:
     - verify_crd_full
     run: |
-      kubectl get cronjob -n payments orders-db-nightly-backup >/dev/null 2>&1
+      kubectl get pod -n zoo mochi >/dev/null 2>&1
 
-  verify_operator_owns_cronjob:
+  verify_operator_adopted:
     machine: dev-machine
     user: laborant
     needs:
     - verify_naive_controller
     run: |
-      [ "$(kubectl get cronjob -n payments orders-db-nightly-backup -o jsonpath='{.metadata.ownerReferences[?(@.controller==true)].kind}' 2>/dev/null)" = "BackupSchedule" ] || exit 1
-      [ -n "$(kubectl get bks -n payments orders-db-nightly -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)" ] || exit 1
-      gen=$(kubectl get bks -n payments orders-db-nightly -o jsonpath='{.metadata.generation}')
-      [ "$(kubectl get bks -n payments orders-db-nightly -o jsonpath='{.status.observedGeneration}')" = "$gen" ]
+      [ "$(kubectl get pod -n zoo mochi -o jsonpath='{.metadata.ownerReferences[?(@.controller==true)].kind}' 2>/dev/null)" = "Pet" ] || exit 1
+      [ "$(kubectl get configmap -n zoo mochi-card -o jsonpath='{.metadata.ownerReferences[?(@.controller==true)].kind}' 2>/dev/null)" = "Pet" ] || exit 1
+      [ -n "$(kubectl get pet -n zoo mochi -o jsonpath='{.status.mood}' 2>/dev/null)" ] || exit 1
+      gen=$(kubectl get pet -n zoo mochi -o jsonpath='{.metadata.generation}')
+      [ "$(kubectl get pet -n zoo mochi -o jsonpath='{.status.observedGeneration}')" = "$gen" ]
 
-  verify_first_backup:
+  verify_ran_away:
     machine: dev-machine
     user: laborant
     needs:
-    - verify_operator_owns_cronjob
+    - verify_operator_adopted
     run: |
-      [ -n "$(kubectl get bks -n payments orders-db-nightly -o jsonpath='{.status.lastBackupTime}' 2>/dev/null)" ]
+      [ "$(kubectl get pet -n zoo mochi -o jsonpath='{.status.mood}' 2>/dev/null)" = "RanAway" ] || exit 1
+      # The Pod is gone, or on its way out.
+      [ -z "$(kubectl get pod -n zoo mochi -o jsonpath='{.metadata.name}' 2>/dev/null)" ] \
+        || [ -n "$(kubectl get pod -n zoo mochi -o jsonpath='{.metadata.deletionTimestamp}' 2>/dev/null)" ]
 
-  verify_second_schedule:
+  verify_came_home:
     machine: dev-machine
     user: laborant
     needs:
-    - verify_operator_owns_cronjob
+    - verify_ran_away
     run: |
-      [ "$(kubectl get cronjob -n payments ledger-hourly-backup -o jsonpath='{.metadata.ownerReferences[?(@.controller==true)].name}' 2>/dev/null)" = "ledger-hourly" ]
+      [ "$(kubectl get pet -n zoo mochi -o jsonpath='{.status.mood}' 2>/dev/null)" = "Happy" ] || exit 1
+      [ "$(kubectl get pod -n zoo mochi -o jsonpath='{.metadata.ownerReferences[?(@.controller==true)].kind}' 2>/dev/null)" = "Pet" ] || exit 1
+      [ -z "$(kubectl get pod -n zoo mochi -o jsonpath='{.metadata.deletionTimestamp}' 2>/dev/null)" ]
+
+  verify_second_pet:
+    machine: dev-machine
+    user: laborant
+    needs:
+    - verify_operator_adopted
+    run: |
+      [ "$(kubectl get pod -n zoo smaug -o jsonpath='{.metadata.ownerReferences[?(@.controller==true)].name}' 2>/dev/null)" = "smaug" ] || exit 1
+      [ "$(kubectl get configmap -n zoo smaug-card -o jsonpath='{.metadata.ownerReferences[?(@.controller==true)].name}' 2>/dev/null)" = "smaug" ]
 
   verify_garbage_collected:
     machine: dev-machine
     user: laborant
     needs:
-    - verify_second_schedule
+    - verify_second_pet
     run: |
-      kubectl get cronjob -n payments orders-db-nightly-backup >/dev/null 2>&1 || exit 1
-      ! kubectl get bks -n payments ledger-hourly >/dev/null 2>&1 || exit 1
-      ! kubectl get cronjob -n payments ledger-hourly-backup >/dev/null 2>&1
+      kubectl get pet -n zoo mochi >/dev/null 2>&1 || exit 1
+      ! kubectl get pet -n zoo smaug >/dev/null 2>&1 || exit 1
+      ! kubectl get configmap -n zoo smaug-card >/dev/null 2>&1 || exit 1
+      [ -z "$(kubectl get pod -n zoo smaug -o jsonpath='{.metadata.name}' 2>/dev/null)" ] \
+        || [ -n "$(kubectl get pod -n zoo smaug -o jsonpath='{.metadata.deletionTimestamp}' 2>/dev/null)" ]
 ---
 
 Most interesting things in Kubernetes today aren't built into Kubernetes.
@@ -163,22 +152,27 @@ they all follow the same recipe. **A CustomResourceDefinition** teaches the API 
 and **a controller** keeps turning that noun into reality.
 Together they're called an *operator*.
 
-In this tutorial you'll build one from scratch, one layer at a time, and see every layer work before adding the next:
+In this tutorial you'll build one from scratch, and it'll take care of a pet.
+You describe a `Pet` in YAML. The operator gives it a Pod to live in and keeps track of how hungry it is.
+Forget to feed it, and it runs away.
 
-1. **The API.** A `BackupSchedule` CRD with validation, defaults, and a status. No code yet.
+You'll build it one layer at a time, and see every layer work before adding the next:
+
+1. **The API.** A `Pet` CRD with validation, house rules, defaults, and a status. No code yet.
 2. **The loop, by hand.** A 15-line bash script that already acts like a controller, and shows you why it isn't enough.
 3. **The real controller.** Go and [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime), the library under Kubebuilder and Operator SDK.
-4. **The loop at work.** Break things on purpose and watch the controller put them back.
+4. **The loop at work.** Let time pass, break things on purpose, and watch the controller cope.
 
 ```text
-                  you                            the controller
-                   │                                   │
-  kubectl apply ──▶│  BackupSchedule                   │  watches BackupSchedules
-                   │    spec:   what you want  ────────┼─▶ and the CronJobs it owns
-                   │    status: what happened  ◀───────┼── writes observations back
-                   │                                   │
-                   │                                   ▼
-                   │                       CronJob ──▶ Job ──▶ Pod (tar the PVC)
+                  you                              the controller
+                   │                                     │
+  kubectl apply ──▶│  Pet                                │  watches Pets, and the
+                   │    spec:   species, diet, lastFedAt ┼─▶ Pods and ConfigMaps they own
+                   │    status: mood, face          ◀────┼── writes observations back
+                   │                                     │
+                   │                                     ▼
+                   │                     ConfigMap "mochi-card" ──▶ Pod "mochi"
+                   │                     (the pet's ASCII card)     (prints it)
 ```
 
 ::remark-box
@@ -189,12 +183,8 @@ You don't need to know Go to follow along. All the code is given to you, and eve
 Basic `kubectl` is enough.
 ::
 
-The playground has a multi-node cluster, and `kubectl` is ready to go on the `dev-machine`.
-A `payments` namespace and a PersistentVolumeClaim named `orders-db-data` (the "database" we'll back up) are already there:
-
-```sh
-kubectl get pvc -n payments
-```
+The playground has a multi-node Kubernetes cluster, and `kubectl` is ready to go on the `dev-machine`.
+There's an empty `zoo` namespace waiting for its first resident.
 
 ## Part 1: The API
 
@@ -203,18 +193,18 @@ kubectl get pvc -n payments
 Start with the smallest CRD that works:
 
 ```sh
-cat > ~/backup-operator/config/crd-minimal.yaml <<'EOF'
+cat > ~/pet-operator/config/crd-minimal.yaml <<'EOF'
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: backupschedules.platform.example.com   # must be <plural>.<group>
+  name: pets.zoo.example.com   # must be <plural>.<group>
 spec:
-  group: platform.example.com
+  group: zoo.example.com
   scope: Namespaced
   names:
-    kind: BackupSchedule
-    plural: backupschedules
-    singular: backupschedule
+    kind: Pet
+    plural: pets
+    singular: pet
   versions:
   - name: v1alpha1
     served: true      # the API server answers requests for this version
@@ -228,34 +218,31 @@ spec:
             x-kubernetes-preserve-unknown-fields: true   # "anything goes", for now
 EOF
 
-kubectl apply -f ~/backup-operator/config/crd-minimal.yaml
+kubectl apply -f ~/pet-operator/config/crd-minimal.yaml
 ```
 
 That's it. The API server now serves a new REST endpoint, with no restart and no compiled code:
 
 ```sh
-kubectl api-resources --api-group=platform.example.com
-kubectl get --raw /apis/platform.example.com/v1alpha1 | python3 -m json.tool
+kubectl api-resources --api-group=zoo.example.com
+kubectl get --raw /apis/zoo.example.com/v1alpha1 | python3 -m json.tool
 ```
 
-Create your first BackupSchedule:
+Adopt your first pet:
 
 ```sh
 kubectl apply -f - <<'EOF'
-apiVersion: platform.example.com/v1alpha1
-kind: BackupSchedule
+apiVersion: zoo.example.com/v1alpha1
+kind: Pet
 metadata:
-  name: orders-db-nightly
-  namespace: payments
+  name: mochi
+  namespace: zoo
 spec:
-  schedule: "0 2 * * *"
-  source:
-    pvcName: orders-db-data
-  retention:
-    keepLast: 14
+  species: cat
+  toy: yarn
 EOF
 
-kubectl get backupschedules -n payments
+kubectl get pets -n zoo
 ```
 
 ::simple-task
@@ -264,55 +251,55 @@ kubectl get backupschedules -n payments
 :name: verify_crd_minimal
 ---
 #active
-Waiting for the CRD and the first BackupSchedule...
+Waiting for the CRD and your first Pet...
 
 #completed
-The API server stores BackupSchedules now, just like Pods or ConfigMaps.
+Welcome home, mochi. The API server stores Pets now, just like Pods or ConfigMaps.
 ::
 
 Now try something silly:
 
 ```sh
 kubectl apply -f - <<'EOF'
-apiVersion: platform.example.com/v1alpha1
-kind: BackupSchedule
+apiVersion: zoo.example.com/v1alpha1
+kind: Pet
 metadata:
-  name: nonsense
-  namespace: payments
+  name: sparkles
+  namespace: zoo
 spec:
-  schedule: whenever
-  retention:
-    keepLast: "a lot"
+  species: unicorn
+  toy: 42
+  favoriteColor: rainbow
 EOF
 ```
 
 It's accepted. Right now the API server is a very polite database: it stores whatever you give it.
-Nothing happens either: no CronJob, no Pod, no backup. **A CRD alone never *does* anything.**
+Nothing happens either: no Pod, no pet, nothing. **A CRD alone never *does* anything.**
 Keep that in mind for Part 2. First, let's make the API strict.
 
 ```sh
-kubectl delete backupschedule -n payments nonsense
+kubectl delete pet -n zoo sparkles
 ```
 
-### Validation, defaults, and status
+### Validation, house rules, defaults, and status
 
 Here's the real CRD. Read through it first. The table below explains each piece.
 
 ```sh
-cat > ~/backup-operator/config/crd-by-hand.yaml <<'EOF'
+cat > ~/pet-operator/config/crd-by-hand.yaml <<'EOF'
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: backupschedules.platform.example.com
+  name: pets.zoo.example.com
 spec:
-  group: platform.example.com
+  group: zoo.example.com
   scope: Namespaced
   names:
-    kind: BackupSchedule
-    plural: backupschedules
-    singular: backupschedule
-    shortNames: [bks]
-    categories: [platform]
+    kind: Pet
+    plural: pets
+    singular: pet
+    shortNames: [pt]
+    categories: [zoo]
   versions:
   - name: v1alpha1
     served: true
@@ -320,107 +307,94 @@ spec:
     subresources:
       status: {}
     additionalPrinterColumns:
-    - name: Schedule
-      type: string
-      jsonPath: .spec.schedule
-    - name: Method
-      type: string
-      jsonPath: .spec.method
-    - name: Keep
-      type: integer
-      jsonPath: .spec.retention.keepLast
-    - name: Suspended
-      type: boolean
-      jsonPath: .spec.suspend
-    - name: Last Backup
-      type: date
-      jsonPath: .status.lastBackupTime
-    - name: Age
-      type: date
-      jsonPath: .metadata.creationTimestamp
+    - {name: Species,  type: string, jsonPath: .spec.species}
+    - {name: Face,     type: string, jsonPath: .status.face}
+    - {name: Mood,     type: string, jsonPath: .status.mood}
+    - {name: Toy,      type: string, jsonPath: .spec.toy}
+    - {name: Last Fed, type: date,   jsonPath: .spec.lastFedAt}
+    - {name: Age,      type: date,   jsonPath: .metadata.creationTimestamp}
     schema:
       openAPIV3Schema:
         type: object
         properties:
           spec:
             type: object
-            required: [schedule, source]
+            required: [species]
             x-kubernetes-validations:
-            - rule: "self.method != 'restic' || has(self.repository)"
-              message: "repository is required when method is restic"
+            - rule: "self.species != 'cactus' || !has(self.toy)"
+              message: "cacti don't play with toys"
+            - rule: "self.species != 'dragon' || duration(self.diet.feedEvery) >= duration('1h')"
+              message: "dragons eat at most once an hour: diet.feedEvery must be at least 1h"
             properties:
-              schedule:
+              species:
                 type: string
-                pattern: '^(\S+\s+){4}\S+$'
-              source:
-                type: object
-                required: [pvcName]
-                properties:
-                  pvcName:
-                    type: string
-                    minLength: 1
-              method:
+                enum: [cat, dog, dragon, cactus]
+              toy:
                 type: string
-                enum: [snapshot, restic]
-                default: snapshot
-              repository:
-                type: string
-              retention:
+                maxLength: 20
+              diet:
                 type: object
                 default: {}
                 properties:
-                  keepLast:
-                    type: integer
-                    minimum: 1
-                    maximum: 30
-                    default: 7
-              suspend:
-                type: boolean
-                default: false
+                  food:
+                    type: string
+                    maxLength: 20
+                    default: snacks
+                  feedEvery:
+                    type: string
+                    maxLength: 10
+                    pattern: '^[0-9]+(s|m|h)$'
+                    default: 10m
+              lastFedAt:
+                type: string
+                format: date-time
           status:
             type: object
             properties:
-              lastBackupTime:
+              mood:
                 type: string
-                format: date-time
-              lastBackupResult:
+              face:
                 type: string
 EOF
 
-kubectl apply -f ~/backup-operator/config/crd-by-hand.yaml
+kubectl apply -f ~/pet-operator/config/crd-by-hand.yaml
 ```
 
 | Piece | What the API server does with it |
 |---|---|
-| `shortNames`, `categories` | `kubectl get bks` and `kubectl get platform` work. Pure convenience, but it's what people actually type. |
-| `openAPIV3Schema` with `type`, `required`, `enum`, `minimum`/`maximum`, `minLength`, `pattern` | Rejects bad objects **before** they reach etcd. Unknown fields are pruned. |
-| `x-kubernetes-validations` | [CEL](https://kubernetes.io/docs/reference/using-api/cel/) rules for what OpenAPI can't express, like "`repository` is required *only if* `method` is `restic`". The rule sits on `spec` because a rule on `repository` would never run when `repository` is missing. |
+| `shortNames`, `categories` | `kubectl get pt` and `kubectl get zoo` work. Pure convenience, but it's what people actually type. |
+| `openAPIV3Schema` with `type`, `required`, `enum`, `maxLength`, `pattern`, `format` | Rejects bad objects **before** they reach etcd. Unknown fields are pruned. |
+| `x-kubernetes-validations` | [CEL](https://kubernetes.io/docs/reference/using-api/cel/) rules for what OpenAPI can't express, like "a cactus can't have a toy". The rules sit on `spec` because each one needs to see two fields. |
+| `duration(...)` | CEL can parse durations. Compared as strings, `'59m' >= '1h'` would be true! |
 | `default` | Fills in missing fields, so every client (and your controller!) sees the same complete object. |
-| `retention: default: {}` | The subtle one. Defaults apply only where the parent object exists. Without this, an object with no `retention` block never gets `keepLast: 7`. |
+| `diet: default: {}` | The subtle one. Defaults apply only where the parent object exists. Without this, a Pet with no `diet` block never gets `food: snacks` or `feedEvery: 10m`. |
 | `subresources: status: {}` | `.status` gets its own endpoint. Users write `spec`, the controller writes `status`, and neither can overwrite the other. |
 | `additionalPrinterColumns` | Better `kubectl get` output. Once you define columns, `AGE` is no longer added automatically, so it's listed explicitly. |
 
-Now try to break it. Every one of these should bounce:
+Now try to get past the zookeeper. Every one of these should bounce:
 
 ```sh
 for spec in \
-  '{"schedule":"whenever","source":{"pvcName":"x"}}' \
-  '{"schedule":"0 2 * * *"}' \
-  '{"schedule":"0 2 * * *","source":{"pvcName":"x"},"retention":{"keepLast":90}}' \
-  '{"schedule":"0 2 * * *","source":{"pvcName":"x"},"method":"rsync"}' \
-  '{"schedule":"0 2 * * *","source":{"pvcName":"x"},"method":"restic"}'
+  '{"species":"unicorn"}' \
+  '{"species":"cactus","toy":"tennis ball"}' \
+  '{"species":"dragon","diet":{"feedEvery":"15m"}}' \
+  '{"species":"dragon"}' \
+  '{"species":"dog","diet":{"feedEvery":"whenever"}}'
 do
-  echo "{\"apiVersion\":\"platform.example.com/v1alpha1\",\"kind\":\"BackupSchedule\",\"metadata\":{\"name\":\"bad\",\"namespace\":\"payments\"},\"spec\":$spec}" \
+  echo "{\"apiVersion\":\"zoo.example.com/v1alpha1\",\"kind\":\"Pet\",\"metadata\":{\"name\":\"nope\",\"namespace\":\"zoo\"},\"spec\":$spec}" \
     | kubectl apply --dry-run=server -f - 2>&1 | head -2
   echo
 done
 ```
 
-And look at what the API server filled in for your first object. You never set `method` or `suspend`:
+Look at the fourth one: a dragon with no `diet` at all. It gets the default `feedEvery: 10m`, and *then* fails the dragon rule.
+Defaulting always runs before validation.
+
+Now look at what the API server filled in for mochi. You never gave it a diet:
 
 ```sh
-kubectl get bks -n payments orders-db-nightly -o yaml | grep -A10 '^spec:'
-kubectl get bks -n payments
+kubectl get pet -n zoo mochi -o yaml | grep -A8 '^spec:'
+kubectl get pets -n zoo
 ```
 
 ::simple-task
@@ -429,10 +403,10 @@ kubectl get bks -n payments
 :name: verify_crd_full
 ---
 #active
-Waiting for the CRD to validate and default BackupSchedules...
+Waiting for the CRD to validate and default Pets...
 
 #completed
-Your API now has a contract: bad input is rejected at the door, and good input comes back complete.
+Your API now has a contract: bad input is turned away at the gate, and good input comes back complete.
 ::
 
 ::details-box
@@ -453,7 +427,7 @@ to say "I've acted on this version of the spec". You'll see it in Part 3.
 ## Part 2: The loop, by hand
 
 A controller is just a loop: **observe** the desired state, **compare** it with the actual state, **act** to close the gap, and repeat.
-That fits in a few lines of bash:
+That fits in a few lines of bash. This one gives every Pet a Pod to live in:
 
 ```sh
 cat > ~/naive-controller.sh <<'EOF'
@@ -461,14 +435,14 @@ cat > ~/naive-controller.sh <<'EOF'
 # A controller in its simplest possible form: look at the desired state,
 # make the world match it, sleep, repeat. Forever.
 while true; do
-  for bs in $(kubectl get bks -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{" "}{end}'); do
-    ns=${bs%/*}; name=${bs#*/}
-    schedule=$(kubectl get bks -n "$ns" "$name" -o jsonpath='{.spec.schedule}')
+  for pet in $(kubectl get pets -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{" "}{end}'); do
+    ns=${pet%/*}; name=${pet#*/}
+    species=$(kubectl get pet -n "$ns" "$name" -o jsonpath='{.spec.species}')
 
-    kubectl create cronjob "$name-backup" -n "$ns" \
-      --image=busybox:1.36 --schedule="$schedule" \
-      --dry-run=client -o yaml -- echo "backing up $name" \
-      | kubectl apply -f - | grep -v unchanged
+    if ! kubectl get pod -n "$ns" "$name" >/dev/null 2>&1; then
+      kubectl run "$name" -n "$ns" --image=busybox:1.37 --restart=Never -- \
+        sh -c "while true; do echo \"I am $name the $species\"; sleep 10; done"
+    fi
   done
   sleep 5
 done
@@ -485,7 +459,8 @@ Open a second terminal tab and run it:
 Back in the first tab:
 
 ```sh
-kubectl get cronjobs -n payments
+kubectl get pods -n zoo
+kubectl logs -n zoo mochi
 ```
 
 ::simple-task
@@ -494,53 +469,69 @@ kubectl get cronjobs -n payments
 :name: verify_naive_controller
 ---
 #active
-Waiting for the bash controller to create a CronJob for orders-db-nightly...
+Waiting for the bash controller to give mochi a Pod...
 
 #completed
-Your BackupSchedule just caused something to happen in the cluster.
+Your Pet just caused something to happen in the cluster.
 ::
 
-Change the desired state and watch the actual state follow within a few seconds:
+Now delete the Pod and watch it come back within a few seconds:
 
 ```sh
-kubectl patch bks -n payments orders-db-nightly --type=merge -p '{"spec":{"schedule":"30 1 * * *"}}'
-kubectl get cronjobs -n payments -w
+kubectl delete pod -n zoo mochi
+kubectl get pods -n zoo -w
 ```
 
-This is the most important idea in Kubernetes. The script never asked *what changed?* It only asked *what should exist?*
+This is the most important idea in Kubernetes. The script never asked *what happened?* It only asked *what should exist?*
 That's called **level-triggered** reconciliation, and it's why controllers are so robust: a missed event doesn't matter, because the next pass fixes everything anyway.
 
-Now for its flaws. Create a throwaway schedule, wait for its CronJob, then delete the schedule:
+Now for its flaws. First, change mochi's species:
+
+```sh
+kubectl patch pet -n zoo mochi --type=merge -p '{"spec":{"species":"dog"}}'
+sleep 10
+kubectl logs -n zoo mochi --tail=1
+```
+
+Mochi still thinks it's a cat. The script only checks whether *a* Pod exists, not whether it's the *right* one.
+It couldn't easily fix that anyway: most of a Pod's spec can't be changed after it's created.
+Put things back:
+
+```sh
+kubectl patch pet -n zoo mochi --type=merge -p '{"spec":{"species":"cat"}}'
+```
+
+Next, adopt a throwaway pet, wait for its Pod, then give it away:
 
 ```sh
 kubectl apply -f - <<'EOF'
-apiVersion: platform.example.com/v1alpha1
-kind: BackupSchedule
+apiVersion: zoo.example.com/v1alpha1
+kind: Pet
 metadata:
-  name: throwaway
-  namespace: payments
+  name: goldie
+  namespace: zoo
 spec:
-  schedule: "0 0 * * *"
-  source:
-    pvcName: orders-db-data
+  species: dog
 EOF
 sleep 8
-kubectl delete bks -n payments throwaway
+kubectl delete pet -n zoo goldie
 sleep 8
-kubectl get cronjobs -n payments
+kubectl get pods -n zoo
 ```
 
-`throwaway-backup` is still there, an orphan. The script only knows how to add things. Its other problems:
+The `goldie` Pod is still there, an orphan. The script only knows how to add things. Its other problems:
 
-- **Polling.** It lists every BackupSchedule every 5 seconds, even when nothing changed. Imagine 5,000 of them.
-- **No status.** Users have no way to tell whether their schedule was picked up or whether backups succeed.
-- **Blind to drift.** If someone edits the CronJob by hand, the script overwrites it only by luck (because `kubectl apply` happens to).
-- **No ownership.** Nothing links the CronJob to the BackupSchedule it came from.
+- **Polling.** It lists every Pet every 5 seconds, even when nothing changed. Imagine 5,000 of them.
+- **No status.** Nobody can tell from the Pet whether it's alive, happy or hungry.
+- **No ownership.** Nothing links a Pod to the Pet it came from.
+- **No sense of time.** Pets should get hungry. Funnily enough, polling would make that easy: the script wakes up every 5 seconds anyway.
+  An efficient, event-driven controller only wakes up when something changes, and the passing of time is not a change in the cluster.
+  You'll see how a real controller solves that.
 
-A real controller fixes all of that. Stop the script with `Ctrl+C` and clean up after it:
+Stop the script with `Ctrl+C` in the second tab, and clean up after it:
 
 ```sh
-kubectl delete cronjobs -n payments --all
+kubectl delete pods -n zoo --all
 ```
 
 ## Part 3: A real controller in Go
@@ -554,17 +545,17 @@ We'll use it directly, without any scaffolding, so every file is one you wrote a
 export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin
 go version
 
-cd ~/backup-operator
-go mod init example.com/backup-operator
-go get sigs.k8s.io/controller-runtime@v0.21.0
-go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.18.0
+cd ~/pet-operator
+go mod init example.com/pet-operator
+go get sigs.k8s.io/controller-runtime@v0.25.1
+go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.22.0
 ```
 
 The downloads take a minute. Meanwhile, here's the plan:
 
 ```text
-backup-operator/
-├── api/v1alpha1/              the BackupSchedule type, in Go
+pet-operator/
+├── api/v1alpha1/              the Pet type, in Go
 ├── internal/controller/       the reconcile loop
 ├── config/                    CRDs (the one you wrote, and one we'll generate)
 └── main.go                    wires everything together and starts it
@@ -577,9 +568,9 @@ The controller needs Go structs that mirror the CRD's schema. First, the file th
 ```sh
 mkdir -p api/v1alpha1 internal/controller
 cat > api/v1alpha1/groupversion_info.go <<'EOF'
-// Package v1alpha1 contains the BackupSchedule API.
+// Package v1alpha1 contains the Pet API.
 // +kubebuilder:object:generate=true
-// +groupName=platform.example.com
+// +groupName=zoo.example.com
 package v1alpha1
 
 import (
@@ -588,7 +579,7 @@ import (
 )
 
 var (
-	GroupVersion  = schema.GroupVersion{Group: "platform.example.com", Version: "v1alpha1"}
+	GroupVersion  = schema.GroupVersion{Group: "zoo.example.com", Version: "v1alpha1"}
 	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}
 	AddToScheme   = SchemeBuilder.AddToScheme
 )
@@ -598,59 +589,59 @@ EOF
 Then the types themselves. Look at the `+kubebuilder:` comments. They're called **markers**, and they should look familiar:
 
 ```sh
-cat > api/v1alpha1/backupschedule_types.go <<'EOF'
+cat > api/v1alpha1/pet_types.go <<'EOF'
 package v1alpha1
 
 import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-// +kubebuilder:validation:XValidation:rule="self.method != 'restic' || has(self.repository)",message="repository is required when method is restic"
-type BackupScheduleSpec struct {
-	// A 5-field cron expression, e.g. "0 2 * * *".
-	// +kubebuilder:validation:Pattern=`^(\S+\s+){4}\S+$`
-	Schedule string `json:"schedule"`
+// +kubebuilder:validation:XValidation:rule="self.species != 'cactus' || !has(self.toy)",message="cacti don't play with toys"
+// +kubebuilder:validation:XValidation:rule="self.species != 'dragon' || duration(self.diet.feedEvery) >= duration('1h')",message="dragons eat at most once an hour: diet.feedEvery must be at least 1h"
+type PetSpec struct {
+	// +kubebuilder:validation:Enum=cat;dog;dragon;cactus
+	Species string `json:"species"`
 
-	Source BackupSource `json:"source"`
-
-	// +kubebuilder:validation:Enum=snapshot;restic
-	// +kubebuilder:default=snapshot
+	// +kubebuilder:validation:MaxLength=20
 	// +optional
-	Method string `json:"method,omitempty"`
-
-	// +optional
-	Repository string `json:"repository,omitempty"`
+	Toy string `json:"toy,omitempty"`
 
 	// +kubebuilder:default={}
 	// +optional
-	Retention Retention `json:"retention,omitempty"`
+	Diet Diet `json:"diet,omitempty"`
 
-	// +kubebuilder:default=false
+	// When the pet was last fed. Feed it by setting this to the current time.
 	// +optional
-	Suspend bool `json:"suspend,omitempty"`
+	LastFedAt *metav1.Time `json:"lastFedAt,omitempty"`
 }
 
-type BackupSource struct {
-	// +kubebuilder:validation:MinLength=1
-	PVCName string `json:"pvcName"`
-}
-
-type Retention struct {
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=30
-	// +kubebuilder:default=7
+type Diet struct {
+	// +kubebuilder:validation:MaxLength=20
+	// +kubebuilder:default=snacks
 	// +optional
-	KeepLast int32 `json:"keepLast,omitempty"`
+	Food string `json:"food,omitempty"`
+
+	// How often the pet needs food, e.g. "10m" or "6h".
+	// +kubebuilder:validation:MaxLength=10
+	// +kubebuilder:validation:Pattern=`^[0-9]+(s|m|h)$`
+	// +kubebuilder:default="10m"
+	// +optional
+	FeedEvery string `json:"feedEvery,omitempty"`
 }
 
-type BackupScheduleStatus struct {
+type PetStatus struct {
+	// Happy, Hungry or RanAway.
+	// +optional
+	Mood string `json:"mood,omitempty"`
+
+	// +optional
+	Face string `json:"face,omitempty"`
+
+	// The Pod the pet lives in. Empty if it ran away.
+	// +optional
+	PodName string `json:"podName,omitempty"`
+
 	// The .metadata.generation the controller last acted on.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-
-	// +optional
-	CronJobName string `json:"cronJobName,omitempty"`
-
-	// +optional
-	LastBackupTime *metav1.Time `json:"lastBackupTime,omitempty"`
 
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
@@ -658,37 +649,36 @@ type BackupScheduleStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=bks,categories=platform
-// +kubebuilder:printcolumn:name="Schedule",type=string,JSONPath=`.spec.schedule`
-// +kubebuilder:printcolumn:name="Method",type=string,JSONPath=`.spec.method`
-// +kubebuilder:printcolumn:name="Keep",type=integer,JSONPath=`.spec.retention.keepLast`
-// +kubebuilder:printcolumn:name="Suspended",type=boolean,JSONPath=`.spec.suspend`
-// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
-// +kubebuilder:printcolumn:name="Last Backup",type=date,JSONPath=`.status.lastBackupTime`
+// +kubebuilder:resource:shortName=pt,categories=zoo
+// +kubebuilder:printcolumn:name="Species",type=string,JSONPath=`.spec.species`
+// +kubebuilder:printcolumn:name="Face",type=string,JSONPath=`.status.face`
+// +kubebuilder:printcolumn:name="Mood",type=string,JSONPath=`.status.mood`
+// +kubebuilder:printcolumn:name="Toy",type=string,JSONPath=`.spec.toy`
+// +kubebuilder:printcolumn:name="Last Fed",type=date,JSONPath=`.spec.lastFedAt`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
-type BackupSchedule struct {
+type Pet struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   BackupScheduleSpec   `json:"spec"`
-	Status BackupScheduleStatus `json:"status,omitempty"`
+	Spec   PetSpec   `json:"spec"`
+	Status PetStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
-type BackupScheduleList struct {
+type PetList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []BackupSchedule `json:"items"`
+	Items           []Pet `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&BackupSchedule{}, &BackupScheduleList{})
+	SchemeBuilder.Register(&Pet{}, &PetList{})
 }
 EOF
 ```
 
-Each marker is one line of the CRD you wrote by hand: `Enum`, `Minimum`, `default`, `XValidation`, `printcolumn`, `subresource:status`.
-The status gained a few fields a controller conventionally reports: `observedGeneration`, `conditions`, and the name of the CronJob it manages.
+Each marker is one line of the CRD you wrote by hand: `Enum`, `MaxLength`, `Pattern`, `default`, `XValidation`, `printcolumn`, `subresource:status`.
+The status gained a few fields a controller conventionally reports: the Pod the pet lives in, `observedGeneration`, and `conditions`.
 
 Kubernetes objects must be deep-copyable. That's boilerplate, so let `controller-gen` write it.
 Then use the same tool to **generate the CRD from the markers**:
@@ -704,12 +694,12 @@ Compare the generated CRD with the one you wrote by hand:
 
 ```sh
 diff <(kubectl create --dry-run=client -o yaml -f config/crd-by-hand.yaml) \
-     <(kubectl create --dry-run=client -o yaml -f config/platform.example.com_backupschedules.yaml) | less
+     <(kubectl create --dry-run=client -o yaml -f config/zoo.example.com_pets.yaml) | less
 ```
 
-The whole `spec` schema (validation rules, defaults, the CEL rule) and the names are identical.
-The differences are descriptions (taken from the Go comments), the new status fields and `Ready` column,
-and small details controller-gen always adds, like `listKind` and `format: int32`.
+The whole `spec` schema (validation rules, defaults, the CEL rules) and the names are identical.
+The differences are descriptions (taken from the Go comments), the new status fields,
+and small details controller-gen always adds, like `listKind`.
 
 ::remark-box
 ---
@@ -721,7 +711,7 @@ This is exactly what `kubebuilder` and `make manifests` do. From now on the Go t
 Replace the hand-written CRD with the generated one:
 
 ```sh
-kubectl apply -f config/platform.example.com_backupschedules.yaml
+kubectl apply -f config/zoo.example.com_pets.yaml
 ```
 
 ### The reconciler
@@ -729,132 +719,241 @@ kubectl apply -f config/platform.example.com_backupschedules.yaml
 This is the heart of the operator. Read the comments: the whole design is in them.
 
 ```sh
-cat > internal/controller/backupschedule_controller.go <<'EOF'
+cat > internal/controller/pet_controller.go <<'EOF'
 package controller
 
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/recorder"
 
-	platformv1alpha1 "example.com/backup-operator/api/v1alpha1"
+	zoov1alpha1 "example.com/pet-operator/api/v1alpha1"
 )
 
-// The "backup agent" is a stand-in: it tars the PVC's contents to prove it could read them.
-const backupScript = `echo "backing up pvc ${PVC} with ${METHOD} to ${REPOSITORY:-<local>}"
-tar czf /tmp/backup.tgz -C /data .
-echo "done: $(wc -c < /tmp/backup.tgz) bytes"`
+const (
+	Happy   = "Happy"
+	Hungry  = "Hungry"
+	RanAway = "RanAway"
+)
 
-type BackupScheduleReconciler struct {
+type PetReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Recorder recorder.EventRecorder
 }
 
-// Reconcile makes the world match one BackupSchedule. It is called with just a
-// namespace/name, never with "what changed", so it always starts by reading the
-// current state from scratch.
-func (r *BackupScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+// Reconcile makes the world match one Pet. It is called with just a namespace/name,
+// never with "what changed", so it always starts by reading the current state.
+func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	// 1. Observe: fetch the desired state.
-	var bs platformv1alpha1.BackupSchedule
-	if err := r.Get(ctx, req.NamespacedName, &bs); err != nil {
-		// Deleted? Nothing to do: the owner reference lets the garbage collector remove the CronJob.
+	var pet zoov1alpha1.Pet
+	if err := r.Get(ctx, req.NamespacedName, &pet); err != nil {
+		// Deleted? Nothing to do: owner references let the garbage collector remove the Pod and ConfigMap.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// 2. Act: make the CronJob look the way the BackupSchedule says it should.
-	cj := &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{
-		Name:      bs.Name + "-backup",
-		Namespace: bs.Namespace,
-	}}
-	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, cj, func() error {
-		mutateCronJob(cj, &bs)
-		return controllerutil.SetControllerReference(&bs, cj, r.Scheme)
+	// How hungry is it? Nothing in the cluster changes when time passes,
+	// so the controller has to work this out itself on every run.
+	feedEvery, err := time.ParseDuration(pet.Spec.Diet.FeedEvery)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	lastFed := pet.CreationTimestamp.Time
+	if pet.Spec.LastFedAt != nil {
+		lastFed = pet.Spec.LastFedAt.Time
+	}
+	mood, moodChangesAt := moodAt(time.Now(), lastFed, feedEvery)
+
+	// 2. Act: the ConfigMap holds the pet's "card", the Pod shows it.
+	card := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: pet.Name + "-card", Namespace: pet.Namespace}}
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, card, func() error {
+		card.Data = map[string]string{"card": renderCard(&pet, mood)}
+		return controllerutil.SetControllerReference(&pet, card, r.Scheme)
 	})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 	if op != controllerutil.OperationResultNone {
-		logger.Info("CronJob reconciled", "cronjob", cj.Name, "operation", op)
-		r.Recorder.Eventf(&bs, corev1.EventTypeNormal, "CronJobReconciled", "CronJob %s %s", cj.Name, op)
+		logger.Info("card updated", "mood", mood, "operation", op)
+	}
+
+	podName, err := r.reconcilePod(ctx, &pet, card, mood)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// 3. Report: write what we observed to status.
-	bs.Status.ObservedGeneration = bs.Generation
-	bs.Status.CronJobName = cj.Name
-	bs.Status.LastBackupTime = cj.Status.LastSuccessfulTime
-	ready := metav1.Condition{
-		Type:               "Ready",
+	pet.Status.Mood = mood
+	pet.Status.Face = faces[pet.Spec.Species][mood]
+	pet.Status.PodName = podName
+	pet.Status.ObservedGeneration = pet.Generation
+	home := metav1.Condition{
+		Type:               "AtHome",
 		Status:             metav1.ConditionTrue,
-		Reason:             "Scheduled",
-		Message:            fmt.Sprintf("CronJob %s runs %q", cj.Name, cj.Spec.Schedule),
-		ObservedGeneration: bs.Generation,
+		Reason:             mood,
+		Message:            fmt.Sprintf("%s lives in Pod %s", pet.Name, podName),
+		ObservedGeneration: pet.Generation,
 	}
-	if bs.Spec.Suspend {
-		ready.Status, ready.Reason, ready.Message = metav1.ConditionFalse, "Suspended", "backups are suspended"
+	if mood == RanAway {
+		home.Status, home.Message = metav1.ConditionFalse, fmt.Sprintf("%s ran away. Feed it to bring it back.", pet.Name)
 	}
-	meta.SetStatusCondition(&bs.Status.Conditions, ready)
-
-	if err := r.Status().Update(ctx, &bs); err != nil {
+	meta.SetStatusCondition(&pet.Status.Conditions, home)
+	if err := r.Status().Update(ctx, &pet); err != nil {
 		return ctrl.Result{}, err
 	}
-	return ctrl.Result{}, nil
+
+	// 4. Come back when the mood is due to change, even if nothing else happens.
+	if moodChangesAt.IsZero() {
+		return ctrl.Result{}, nil
+	}
+	return ctrl.Result{RequeueAfter: time.Until(moodChangesAt) + time.Second}, nil
 }
 
-// mutateCronJob sets only the fields this controller owns and leaves everything
-// else (including the defaults the API server filled in) alone. Replacing whole
-// structs here would wipe those defaults, so every reconcile would look like a
-// change and send a pointless update to the API server.
-func mutateCronJob(cj *batchv1.CronJob, bs *platformv1alpha1.BackupSchedule) {
-	cj.Spec.Schedule = bs.Spec.Schedule
-	cj.Spec.Suspend = ptr.To(bs.Spec.Suspend)
-	cj.Spec.ConcurrencyPolicy = batchv1.ForbidConcurrent
-	cj.Spec.SuccessfulJobsHistoryLimit = ptr.To(bs.Spec.Retention.KeepLast)
-
-	pod := &cj.Spec.JobTemplate.Spec.Template.Spec
-	pod.RestartPolicy = corev1.RestartPolicyOnFailure
-	pod.Volumes = []corev1.Volume{{
-		Name: "data",
-		VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-			ClaimName: bs.Spec.Source.PVCName,
-			ReadOnly:  true,
-		}},
-	}}
-
-	if len(pod.Containers) == 0 {
-		pod.Containers = []corev1.Container{{}}
+// moodAt: fed less than feedEvery ago is Happy, less than 3x feedEvery is Hungry,
+// anything longer and the pet runs away. It also says when the mood changes next.
+func moodAt(now, lastFed time.Time, feedEvery time.Duration) (mood string, changesAt time.Time) {
+	hungryAt := lastFed.Add(feedEvery)
+	runAwayAt := lastFed.Add(3 * feedEvery)
+	switch {
+	case now.Before(hungryAt):
+		return Happy, hungryAt
+	case now.Before(runAwayAt):
+		return Hungry, runAwayAt
+	default:
+		return RanAway, time.Time{} // it stays gone until someone feeds it
 	}
-	c := &pod.Containers[0]
-	c.Name = "backup"
-	c.Image = "busybox:1.36"
-	c.Command = []string{"sh", "-c", backupScript}
-	c.Env = []corev1.EnvVar{
-		{Name: "PVC", Value: bs.Spec.Source.PVCName},
-		{Name: "METHOD", Value: bs.Spec.Method},
-		{Name: "REPOSITORY", Value: bs.Spec.Repository},
-	}
-	c.VolumeMounts = []corev1.VolumeMount{{Name: "data", MountPath: "/data", ReadOnly: true}}
 }
 
-// SetupWithManager wires up the watches: every BackupSchedule event, and every event
-// on a CronJob it owns, ends up as a Reconcile call for that BackupSchedule.
-func (r *BackupScheduleReconciler) SetupWithManager(mgr ctrl.Manager) error {
+// reconcilePod makes sure the pet's Pod exists, unless the pet ran away.
+// Most of a Pod's spec can't be changed after creation, so the Pod never gets
+// updated: anything that changes (the card) lives in the ConfigMap it mounts.
+func (r *PetReconciler) reconcilePod(ctx context.Context, pet *zoov1alpha1.Pet, card *corev1.ConfigMap, mood string) (string, error) {
+	var pod corev1.Pod
+	err := r.Get(ctx, client.ObjectKey{Namespace: pet.Namespace, Name: pet.Name}, &pod)
+	exists := err == nil
+	if err != nil && !apierrors.IsNotFound(err) {
+		return "", err
+	}
+
+	if mood == RanAway {
+		if exists && pod.DeletionTimestamp == nil {
+			if err := r.Delete(ctx, &pod); client.IgnoreNotFound(err) != nil {
+				return "", err
+			}
+			r.Recorder.Eventf(pet, &pod, corev1.EventTypeWarning, "RanAway", "Starve", "%s got too hungry and ran away", pet.Name)
+		}
+		return "", nil
+	}
+	if exists {
+		return pod.Name, nil
+	}
+
+	pod = corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pet.Name,
+			Namespace: pet.Namespace,
+			Labels:    map[string]string{"zoo.example.com/pet": pet.Name},
+		},
+		Spec: corev1.PodSpec{
+			TerminationGracePeriodSeconds: ptr.To[int64](1),
+			Containers: []corev1.Container{{
+				Name:         "pet",
+				Image:        "busybox:1.37",
+				Command:      []string{"sh", "-c", `while true; do echo "--- $(date +%T)"; cat /pet/card; sleep 10; done`},
+				VolumeMounts: []corev1.VolumeMount{{Name: "card", MountPath: "/pet"}},
+			}},
+			Volumes: []corev1.Volume{{
+				Name: "card",
+				VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: card.Name},
+				}},
+			}},
+		},
+	}
+	if err := controllerutil.SetControllerReference(pet, &pod, r.Scheme); err != nil {
+		return "", err
+	}
+	if err := r.Create(ctx, &pod); err != nil {
+		return "", err
+	}
+	r.Recorder.Eventf(pet, &pod, corev1.EventTypeNormal, "MovedIn", "CreatePod", "%s moved into Pod %s", pet.Name, pod.Name)
+	return pod.Name, nil
+}
+
+var faces = map[string]map[string]string{
+	"cat":    {Happy: "😺", Hungry: "😾", RanAway: "💨"},
+	"dog":    {Happy: "🐶", Hungry: "🥺", RanAway: "💨"},
+	"dragon": {Happy: "🐲", Hungry: "🔥", RanAway: "💨"},
+	"cactus": {Happy: "🌵", Hungry: "🥀", RanAway: "💨"},
+}
+
+var art = map[string]string{
+	"cat": `
+  /\_/\
+ ( %s )
+  > ^ <`,
+	"dog": `
+  /^ ^\
+ / %s \
+ V\ Y /V
+  / - \
+ |    \
+ || (__V`,
+	"dragon": `
+   __/\__
+  (  %s  )~~<
+   \_vv_/  ~~`,
+	"cactus": `
+      _
+   _ | | _
+  | || || |
+   \_%s_/
+     | |
+   __|_|__`,
+}
+
+var eyes = map[string]string{Happy: "^.^", Hungry: "o.o", RanAway: "   "}
+
+func renderCard(pet *zoov1alpha1.Pet, mood string) string {
+	var b strings.Builder
+	switch mood {
+	case RanAway:
+		fmt.Fprintf(&b, "%s ran away. Feed it to bring it back!\n", pet.Name)
+		return b.String()
+	case Hungry:
+		fmt.Fprintf(&b, "%s is HUNGRY. %s, please!\n", pet.Name, pet.Spec.Diet.Food)
+	default:
+		fmt.Fprintf(&b, "%s is happy.\n", pet.Name)
+	}
+	fmt.Fprintf(&b, art[pet.Spec.Species]+"\n", eyes[mood])
+	if pet.Spec.Toy != "" {
+		fmt.Fprintf(&b, "playing with: %s\n", pet.Spec.Toy)
+	}
+	return b.String()
+}
+
+// SetupWithManager wires up the watches: every Pet event, and every event on a
+// Pod or ConfigMap a Pet owns, ends up as a Reconcile call for that Pet.
+func (r *PetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&platformv1alpha1.BackupSchedule{}).
-		Owns(&batchv1.CronJob{}).
+		For(&zoov1alpha1.Pet{}).
+		Owns(&corev1.Pod{}).
+		Owns(&corev1.ConfigMap{}).
 		Complete(r)
 }
 EOF
@@ -862,12 +961,13 @@ EOF
 
 Some things worth noticing:
 
-- **`Reconcile` receives only a name.** Not the event, not the diff, not the old object. Just like the bash loop, it looks at the current state and makes it right. It's level-triggered, but it only runs when something relevant changes.
-- **`CreateOrUpdate`** reads the CronJob (or starts from an empty one), runs your mutate function, and writes only if something actually changed.
-- **`mutateCronJob` touches only fields it owns.** The API server fills in defaults on every object (`imagePullPolicy`, `dnsPolicy`, and many more). If you replaced the whole pod spec, those defaults would disappear from your copy, every reconcile would look like a change, and the controller would send pointless updates.
-- **`SetControllerReference`** stamps the CronJob with an owner reference pointing at the BackupSchedule. That fixes the orphan problem, as you'll see.
-- **`Owns(&batchv1.CronJob{})`**: when an owned CronJob changes (someone edits it, deletes it, or a backup finishes), the *owner* BackupSchedule gets reconciled.
-- The retention policy maps onto the CronJob's `successfulJobsHistoryLimit`: "keep the last N successful backup jobs".
+- **`Reconcile` receives only a name.** Not the event, not the diff, not the old object. Just like the bash loop, it looks at the current state and makes it right.
+- **Hunger is computed, not stored.** Nothing in the cluster changes when time passes, so every run works out the mood from `lastFedAt` and the clock.
+- **`RequeueAfter`** is how the controller deals with time: "call me again when this pet's mood is due to change". There's no polling, and no timer per pet in your code. The controller's work queue takes care of it.
+- **The ConfigMap is updated, the Pod never is.** Anything that changes (the card) lives in the ConfigMap, and the Pod just mounts it. That's the fix for the bash script's "mochi still thinks it's a cat" problem. `CreateOrUpdate` reads the ConfigMap (or starts from an empty one), runs your function, and writes only if something actually changed.
+- **`SetControllerReference`** stamps the Pod and the ConfigMap with an owner reference pointing at the Pet. That fixes the orphan problem, as you'll see.
+- **`Owns(&corev1.Pod{})`**: when a Pod or ConfigMap that belongs to a Pet changes or disappears, the *owner* Pet gets reconciled.
+- **Events** (`Recorder.Eventf`) leave a human-readable trail in `kubectl describe pet`.
 
 ### main.go
 
@@ -885,18 +985,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	platformv1alpha1 "example.com/backup-operator/api/v1alpha1"
-	"example.com/backup-operator/internal/controller"
+	zoov1alpha1 "example.com/pet-operator/api/v1alpha1"
+	"example.com/pet-operator/internal/controller"
 )
 
 func main() {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 	setupLog := ctrl.Log.WithName("setup")
 
-	// The scheme maps Go types to API kinds: built-in ones plus our BackupSchedule.
+	// The scheme maps Go types to API kinds: the built-in ones plus our Pet.
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(platformv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(zoov1alpha1.AddToScheme(scheme))
 
 	// The manager owns the shared informer cache, the clients, and the controllers' lifecycle.
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
@@ -908,10 +1008,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.BackupScheduleReconciler{
+	if err := (&controller.PetReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("backup-operator"),
+		Recorder: mgr.GetEventRecorder("pet-operator"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up controller")
 		os.Exit(1)
@@ -938,83 +1038,158 @@ go mod tidy
 go run .
 ```
 
-You should see the manager start, and a `CronJob reconciled ... "operation": "created"` line.
 Leave it running. From now on, use the other terminal tab.
 
+Mochi has been waiting since Part 1, and nobody has fed it. It gets hungry 10 minutes after being fed (or, if it never was, after being adopted),
+and it runs away after 30. Depending on how long you took to get here, it might be happy, hungry, or already gone:
+
 ```sh
-kubectl get bks,cronjobs -n payments
-kubectl get cronjob -n payments orders-db-nightly-backup -o jsonpath='{.metadata.ownerReferences}' | python3 -m json.tool
-kubectl get bks -n payments orders-db-nightly -o jsonpath='{.status}' | python3 -m json.tool
+kubectl get pets,pods -n zoo
+```
+
+Whatever happened, feeding fixes it. Add a little helper to your shell. It sets `lastFedAt` to the current time:
+
+```sh
+cat >> ~/.bashrc <<'EOF'
+feed() {
+  kubectl patch pet "$1" -n zoo --type=merge \
+    -p "{\"spec\":{\"lastFedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}"
+}
+EOF
+source ~/.bashrc
+
+feed mochi
+kubectl get pets,pods -n zoo
+```
+
+Look at what the operator created, who owns it, and what it reported:
+
+```sh
+kubectl get pod,configmap -n zoo -o custom-columns=KIND:.kind,NAME:.metadata.name,OWNER:.metadata.ownerReferences[0].kind
+kubectl get pet -n zoo mochi -o jsonpath='{.status}' | python3 -m json.tool
+```
+
+Once the Pod is running, say hi:
+
+```sh
+kubectl logs -n zoo mochi
 ```
 
 ::simple-task
 ---
 :tasks: tasks
-:name: verify_operator_owns_cronjob
+:name: verify_operator_adopted
 ---
 #active
-Waiting for the operator to own the CronJob and report status...
+Waiting for the operator to move mochi into its Pod and report its mood...
 
 #completed
-The CronJob is owned by the BackupSchedule, and the BackupSchedule reports Ready with an up-to-date observedGeneration.
+Mochi's Pod and card are owned by the Pet, and the Pet reports a mood with an up-to-date observedGeneration.
 ::
 
 ## Part 4: The loop at work
 
 Keep the operator's logs in view in one tab and run these experiments in the other.
 
-### Spec changes are picked up, and acknowledged
+### Time passes
+
+Ten minutes is a long time to wait. Put mochi on a faster metabolism, and feed it right away:
 
 ```sh
-kubectl patch bks -n payments orders-db-nightly --type=merge -p '{"spec":{"retention":{"keepLast":5}}}'
-
-kubectl get cronjob -n payments orders-db-nightly-backup -o jsonpath='{.spec.successfulJobsHistoryLimit}{"\n"}'
-kubectl get bks -n payments orders-db-nightly \
-  -o jsonpath='generation={.metadata.generation} observedGeneration={.status.observedGeneration}{"\n"}'
+kubectl patch pet -n zoo mochi --type=merge -p '{"spec":{"diet":{"feedEvery":"1m"}}}'
+feed mochi
+kubectl get pets -n zoo -w
 ```
 
-`observedGeneration` catches up with `generation`: that's the controller telling you it has seen this version of your spec.
+Then do nothing. Nobody touches the Pet, but after a minute its mood changes to `Hungry`,
+and after three minutes mochi runs away and its Pod is deleted.
+That's `RequeueAfter` at work: each reconcile asked to be called again exactly when the mood was due to change.
 
-### Drift is reverted
-
-Edit the CronJob behind the operator's back:
+While you wait, watch the pet itself in another tab. The card updates within a minute or so of a mood change,
+because the kubelet refreshes mounted ConfigMaps periodically:
 
 ```sh
-kubectl patch cronjob -n payments orders-db-nightly-backup --type=merge -p '{"spec":{"schedule":"* * * * *"}}'
-kubectl get cronjob -n payments orders-db-nightly-backup -o jsonpath='{.spec.schedule}{"\n"}'
+kubectl logs -n zoo mochi -f
 ```
 
-It's back to the BackupSchedule's schedule before you can blink. The edit fired a watch event on an *owned* CronJob, which triggered a reconcile of its owner.
+::simple-task
+---
+:tasks: tasks
+:name: verify_ran_away
+---
+#active
+Waiting for mochi to get hungry... and then some. (About 3 minutes.)
+
+#completed
+Mochi ran away. Nothing changed in the cluster: the controller woke itself up to notice.
+::
+
+Poor thing. Look at what the operator recorded, then bring mochi home:
+
+```sh
+kubectl describe pet -n zoo mochi | tail -n 8
+feed mochi
+kubectl get pets,pods -n zoo
+```
+
+::simple-task
+---
+:tasks: tasks
+:name: verify_came_home
+---
+#active
+Waiting for mochi to come home...
+
+#completed
+Welcome back. Feeding changed the spec, the controller reconciled, and a new Pod was created.
+::
+
+Put mochi back on a relaxed diet so it doesn't run away during the next experiments:
+
+```sh
+kubectl patch pet -n zoo mochi --type=merge -p '{"spec":{"diet":{"feedEvery":"10m"}}}'
+feed mochi
+```
 
 ### Deleted children come back
 
 ```sh
-kubectl delete cronjob -n payments orders-db-nightly-backup
-kubectl get cronjob -n payments
+kubectl delete pod -n zoo mochi
+kubectl get pods -n zoo -w
 ```
 
-### Suspending reports a condition
+### Drift is reverted
+
+Scribble on mochi's card behind the operator's back:
 
 ```sh
-kubectl patch bks -n payments orders-db-nightly --type=merge -p '{"spec":{"suspend":true}}'
-kubectl get bks -n payments
-kubectl describe bks -n payments orders-db-nightly | tail -n 15
+kubectl patch configmap -n zoo mochi-card --type=merge -p '{"data":{"card":"mochi is a dog now"}}'
+kubectl get configmap -n zoo mochi-card -o jsonpath='{.data.card}'
 ```
 
-`READY` turns `False` with reason `Suspended`, and the Events section shows what the operator did.
-Resume it before moving on:
+It's back before you can blink. The edit fired a watch event on an *owned* ConfigMap, which triggered a reconcile of its owner.
+
+### Spec changes are picked up, and acknowledged
+
+This time, unlike in Part 2, changing the spec actually changes the pet:
 
 ```sh
-kubectl patch bks -n payments orders-db-nightly --type=merge -p '{"spec":{"suspend":false}}'
+kubectl patch pet -n zoo mochi --type=merge -p '{"spec":{"toy":"laser pointer"}}'
+
+kubectl get configmap -n zoo mochi-card -o jsonpath='{.data.card}'
+kubectl get pet -n zoo mochi \
+  -o jsonpath='generation={.metadata.generation} observedGeneration={.status.observedGeneration}{"\n"}'
 ```
+
+`observedGeneration` catches up with `generation`: that's the controller telling you it has seen this version of your spec.
 
 ### A crashed controller catches up
 
 Stop the operator with `Ctrl+C`. While it's down, change the spec:
 
 ```sh
-kubectl patch bks -n payments orders-db-nightly --type=merge -p '{"spec":{"schedule":"45 3 * * *"}}'
-kubectl get cronjob -n payments orders-db-nightly-backup -o jsonpath='{.spec.schedule}{"\n"}'   # still the old one
+kubectl patch pet -n zoo mochi --type=merge -p '{"spec":{"toy":"cardboard box"}}'
+kubectl get configmap -n zoo mochi-card -o jsonpath='{.data.card}'   # still the laser pointer
 ```
 
 Start it again with `go run .` and check once more. On startup the cache LISTs everything, and every object gets reconciled.
@@ -1029,86 +1204,49 @@ The API server refuses the stale write, controller-runtime puts the request back
 It's harmless and expected. Just never "fix" it by retrying the same stale write in a loop.
 ::
 
-### Run a real backup
-
-So far no backup has actually run. Make the schedule fire every minute:
-
-```sh
-kubectl patch bks -n payments orders-db-nightly --type=merge -p '{"spec":{"schedule":"* * * * *"}}'
-kubectl get jobs,pods -n payments -w
-```
-
-Within a minute or two a Job runs, the pod mounts the PVC and archives it:
-
-```sh
-kubectl logs -n payments -l job-name --tail=5 --prefix
-kubectl get bks -n payments
-```
-
-When the Job succeeds, the CronJob's `status.lastSuccessfulTime` changes. That's an event on an *owned* object, so the BackupSchedule is reconciled, and its `LAST BACKUP` column fills in.
-
-::simple-task
----
-:tasks: tasks
-:name: verify_first_backup
----
-#active
-Waiting for the first backup to finish and show up in the BackupSchedule's status...
-
-#completed
-Full loop: spec → CronJob → Job → Pod → CronJob status → BackupSchedule status.
-::
-
-Put the nightly schedule back so the cluster isn't archiving every minute:
-
-```sh
-kubectl patch bks -n payments orders-db-nightly --type=merge -p '{"spec":{"schedule":"0 2 * * *"}}'
-```
-
 ### Deletion cleans up after itself
 
-Remember the orphaned CronJob from the bash controller? Create a second schedule:
+Remember the orphaned Pod from the bash controller? Adopt a second pet:
 
 ```sh
 kubectl apply -f - <<'EOF'
-apiVersion: platform.example.com/v1alpha1
-kind: BackupSchedule
+apiVersion: zoo.example.com/v1alpha1
+kind: Pet
 metadata:
-  name: ledger-hourly
-  namespace: payments
+  name: smaug
+  namespace: zoo
 spec:
-  schedule: "0 * * * *"
-  method: restic
-  repository: s3://acme-backups/ledger
-  source:
-    pvcName: orders-db-data
+  species: dragon
+  diet:
+    food: sheep
+    feedEvery: 6h
 EOF
 
-kubectl get bks,cronjobs -n payments
+kubectl get pets,pods,configmaps -n zoo
 ```
 
 ::simple-task
 ---
 :tasks: tasks
-:name: verify_second_schedule
+:name: verify_second_pet
 ---
 #active
-Waiting for the operator to create ledger-hourly-backup...
+Waiting for the operator to move smaug in...
 
 #completed
-One BackupSchedule, one owned CronJob.
+One Pet, one Pod, one card, all owned by the Pet.
 ::
 
-Now delete it:
+Now, sadly, smaug has to go to a bigger zoo:
 
 ```sh
-kubectl delete bks -n payments ledger-hourly
-kubectl get cronjobs -n payments
+kubectl delete pet -n zoo smaug
+kubectl get pods,configmaps -n zoo
 ```
 
-The CronJob is gone too, and the operator did nothing: its `Reconcile` just got a "not found" and returned.
+Its Pod and card are gone too, and the operator did nothing: its `Reconcile` just got a "not found" and returned.
 The cleanup was done by Kubernetes' **garbage collector**, which deletes objects whose owner no longer exists.
-That's what the owner reference was for.
+That's what the owner references were for.
 
 ::simple-task
 ---
@@ -1116,7 +1254,7 @@ That's what the owner reference was for.
 :name: verify_garbage_collected
 ---
 #active
-Waiting for ledger-hourly and its CronJob to be gone...
+Waiting for smaug, its Pod and its card to be gone...
 
 #completed
 No orphans this time.
@@ -1128,20 +1266,23 @@ You now have every essential piece of an operator:
 
 | Piece | Where |
 |---|---|
-| An API with a contract: validation, CEL, defaults | CRD (Part 1), generated from Go markers (Part 3) |
+| An API with a contract: validation, CEL house rules, defaults | CRD (Part 1), generated from Go markers (Part 3) |
 | Spec/status separation and `observedGeneration` | status subresource + `r.Status().Update` |
 | Level-triggered reconciliation | `Reconcile(ctx, req)` gets a name, not an event |
+| Time-based behaviour without polling | `ctrl.Result{RequeueAfter: ...}` |
 | Cheap watching | the manager's informer cache |
-| Self-healing | `Owns(&batchv1.CronJob{})` |
+| Self-healing and drift correction | `Owns(&corev1.Pod{})`, `Owns(&corev1.ConfigMap{})` |
+| Handling immutable children | update the ConfigMap, only create (or delete) the Pod |
 | Cleanup | owner references + the garbage collector |
 | Human-readable feedback | conditions, printer columns, events |
 
 Production operators typically add:
 
-- **Finalizers**, for cleanup the garbage collector can't do: things outside the cluster, like deleting the backups in S3 when a BackupSchedule is removed.
+- **Finalizers**, for cleanup the garbage collector can't do: things outside the cluster.
+  If each pet had an account in some external "pet registry", a finalizer would make sure it's deregistered before the Pet disappears.
 - **RBAC and in-cluster deployment.** A ServiceAccount, a ClusterRole generated from `+kubebuilder:rbac` markers, and a Deployment running the image.
 - **Predicates**, such as `GenerationChangedPredicate`, to skip reconciles that can't change anything, like the one triggered by our own status update.
-- **Tests** with `envtest`, which runs a real kube-apiserver and etcd, just like the one this tutorial's checks run against.
+- **Tests** with `envtest`, which runs a real kube-apiserver and etcd, just like the one this tutorial's checks were developed against.
 - **Admission webhooks** for validation or defaulting that CEL can't express.
 - **Scaffolding.** [Kubebuilder](https://book.kubebuilder.io/) generates this whole layout (plus Makefiles, Dockerfiles and kustomize) with `kubebuilder init` and `kubebuilder create api`. Now you know what every generated file is for.
 
@@ -1149,7 +1290,7 @@ Production operators typically add:
 ---
 kind: success
 ---
-Want to test the API design part without the guide? Try the challenge
-[Extend the Kubernetes API With a Validated CustomResourceDefinition](/challenges/build-a-validated-crd):
-same `BackupSchedule`, no hints until you ask, and a hidden test suite.
+Want to practice the API design part without the guide? Try the challenge
+[Open a Kubernetes Zoo: Design a Validated Pet CustomResourceDefinition](/challenges/adopt-a-pet-crd):
+same `Pet`, no hints until you ask, and a hidden test suite.
 ::

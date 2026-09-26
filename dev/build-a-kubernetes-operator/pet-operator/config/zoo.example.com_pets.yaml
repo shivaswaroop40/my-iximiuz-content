@@ -3,39 +3,36 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.18.0
-  name: backupschedules.platform.example.com
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: pets.zoo.example.com
 spec:
-  group: platform.example.com
+  group: zoo.example.com
   names:
     categories:
-    - platform
-    kind: BackupSchedule
-    listKind: BackupScheduleList
-    plural: backupschedules
+    - zoo
+    kind: Pet
+    listKind: PetList
+    plural: pets
     shortNames:
-    - bks
-    singular: backupschedule
+    - pt
+    singular: pet
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.schedule
-      name: Schedule
+    - jsonPath: .spec.species
+      name: Species
       type: string
-    - jsonPath: .spec.method
-      name: Method
+    - jsonPath: .status.face
+      name: Face
       type: string
-    - jsonPath: .spec.retention.keepLast
-      name: Keep
-      type: integer
-    - jsonPath: .spec.suspend
-      name: Suspended
-      type: boolean
-    - jsonPath: .status.conditions[?(@.type=="Ready")].status
-      name: Ready
+    - jsonPath: .status.mood
+      name: Mood
       type: string
-    - jsonPath: .status.lastBackupTime
-      name: Last Backup
+    - jsonPath: .spec.toy
+      name: Toy
+      type: string
+    - jsonPath: .spec.lastFedAt
+      name: Last Fed
       type: date
     - jsonPath: .metadata.creationTimestamp
       name: Age
@@ -63,46 +60,44 @@ spec:
             type: object
           spec:
             properties:
-              method:
-                default: snapshot
-                enum:
-                - snapshot
-                - restic
-                type: string
-              repository:
-                type: string
-              retention:
+              diet:
                 default: {}
                 properties:
-                  keepLast:
-                    default: 7
-                    format: int32
-                    maximum: 30
-                    minimum: 1
-                    type: integer
-                type: object
-              schedule:
-                description: A 5-field cron expression, e.g. "0 2 * * *".
-                pattern: ^(\S+\s+){4}\S+$
-                type: string
-              source:
-                properties:
-                  pvcName:
-                    minLength: 1
+                  feedEvery:
+                    default: 10m
+                    description: How often the pet needs food, e.g. "10m" or "6h".
+                    maxLength: 10
+                    pattern: ^[0-9]+(s|m|h)$
                     type: string
-                required:
-                - pvcName
+                  food:
+                    default: snacks
+                    maxLength: 20
+                    type: string
                 type: object
-              suspend:
-                default: false
-                type: boolean
+              lastFedAt:
+                description: When the pet was last fed. Feed it by setting this to
+                  the current time.
+                format: date-time
+                type: string
+              species:
+                enum:
+                - cat
+                - dog
+                - dragon
+                - cactus
+                type: string
+              toy:
+                maxLength: 20
+                type: string
             required:
-            - schedule
-            - source
+            - species
             type: object
             x-kubernetes-validations:
-            - message: repository is required when method is restic
-              rule: self.method != 'restic' || has(self.repository)
+            - message: cacti don't play with toys
+              rule: self.species != 'cactus' || !has(self.toy)
+            - message: 'dragons eat at most once an hour: diet.feedEvery must be at
+                least 1h'
+              rule: self.species != 'dragon' || duration(self.diet.feedEvery) >= duration('1h')
           status:
             properties:
               conditions:
@@ -161,15 +156,18 @@ spec:
                   - type
                   type: object
                 type: array
-              cronJobName:
+              face:
                 type: string
-              lastBackupTime:
-                format: date-time
+              mood:
+                description: Happy, Hungry or RanAway.
                 type: string
               observedGeneration:
                 description: The .metadata.generation the controller last acted on.
                 format: int64
                 type: integer
+              podName:
+                description: The Pod the pet lives in. Empty if it ran away.
+                type: string
             type: object
         required:
         - spec

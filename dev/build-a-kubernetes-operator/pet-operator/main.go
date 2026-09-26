@@ -10,18 +10,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	platformv1alpha1 "example.com/backup-operator/api/v1alpha1"
-	"example.com/backup-operator/internal/controller"
+	zoov1alpha1 "example.com/pet-operator/api/v1alpha1"
+	"example.com/pet-operator/internal/controller"
 )
 
 func main() {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 	setupLog := ctrl.Log.WithName("setup")
 
-	// The scheme maps Go types to API kinds: built-in ones plus our BackupSchedule.
+	// The scheme maps Go types to API kinds: the built-in ones plus our Pet.
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(platformv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(zoov1alpha1.AddToScheme(scheme))
 
 	// The manager owns the shared informer cache, the clients, and the controllers' lifecycle.
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
@@ -33,10 +33,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.BackupScheduleReconciler{
+	if err := (&controller.PetReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("backup-operator"),
+		Recorder: mgr.GetEventRecorder("pet-operator"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up controller")
 		os.Exit(1)
