@@ -5,13 +5,13 @@ Code in the tutorial comes from the tested reference files in this directory
 ({{file:path}} placeholders), so the tutorial can't drift from the code that
 run-tests.sh actually exercises. Re-run after editing either side:
 
-    dev/build-a-kubernetes-operator/render.py
+    dev/open-a-kubernetes-zoo/render.py
 """
 import pathlib
 import re
 
 HERE = pathlib.Path(__file__).resolve().parent
-OUT = HERE.parent.parent / "tutorials" / "build-a-kubernetes-operator-from-scratch-a6eecb2c" / "index.md"
+OUT = HERE.parent.parent / "tutorials" / "open-a-kubernetes-zoo-9ad54ae8" / "index.md"
 
 
 def include(match: re.Match) -> str:

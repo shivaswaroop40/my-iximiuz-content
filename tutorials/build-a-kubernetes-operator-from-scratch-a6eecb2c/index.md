@@ -17,7 +17,6 @@ tagz:
 - crd
 - custom-resources
 - operators
-- controllers
 - controller-runtime
 - go
 
@@ -184,6 +183,14 @@ If the playground asks you to pick a networking plugin, keep the default (flanne
 There's an empty `zoo` namespace waiting for its first resident.
 
 ## Part 1: The API
+
+::remark-box
+---
+kind: info
+---
+This part moves quickly through CRD design. If schemas, CEL rules and defaults are new to you, the
+[Open a Kubernetes Zoo](/tutorials/open-a-kubernetes-zoo-9ad54ae8) tutorial builds this exact CRD step by step first.
+::
 
 ### A CRD is a new table in the API server
 
@@ -1330,7 +1337,7 @@ Production operators typically add:
 ---
 kind: success
 ---
-Want to practice the API design part without the guide? Try the challenge
-[Open a Kubernetes Zoo: Design a Validated Pet CustomResourceDefinition](/challenges/adopt-a-pet-crd):
-same `Pet`, no hints until you ask, and a hidden test suite.
+Want to go deeper on the API side? The tutorial
+[Open a Kubernetes Zoo: Design a Validated CustomResourceDefinition](/tutorials/open-a-kubernetes-zoo-9ad54ae8)
+builds the same `Pet` CRD one layer at a time, with every validation rule and default explained.
 ::

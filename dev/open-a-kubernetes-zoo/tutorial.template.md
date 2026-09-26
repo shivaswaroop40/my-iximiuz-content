@@ -1,12 +1,13 @@
 ---
-kind: challenge
+kind: tutorial
 
-title: "Open a Kubernetes Zoo: Design a Validated Pet CustomResourceDefinition"
+title: "Open a Kubernetes Zoo: Design a Validated CustomResourceDefinition"
 
 description: |
-  The zoo is opening and the keepers have already written the paperwork for their first pets.
-  All that's missing is the API. Teach the Kubernetes API server what a Pet is,
-  so it can reject a cactus with a toy or a dragon that wants a snack every ten minutes.
+  The zoo opens next week and the keepers have already written the paperwork. All that's missing is the API.
+  Build a Pet CustomResourceDefinition one layer at a time: names, an OpenAPI schema, CEL house rules,
+  defaults, a status subresource and printer columns. By the end, the API server itself turns away
+  a cactus with a toy and a dragon that wants a snack every ten minutes.
 
 categories:
 - kubernetes
@@ -16,8 +17,6 @@ tagz:
 - custom-resources
 - cel
 - api-extension
-
-difficulty: medium
 
 createdAt: 2026-09-26
 updatedAt: 2026-09-26
@@ -551,34 +550,78 @@ The zoo opens next week. The keepers have done their paperwork, and every new ar
 There's no pet-care controller yet (that's another team's job). The keepers need the **API** first,
 so they can commit manifests today and have the API server turn away anything that breaks the house rules.
 
-The head zookeeper's spec is waiting for you on the `dev-machine`:
+In this tutorial you'll build that API as a CustomResourceDefinition (CRD), one layer at a time:
 
-```sh
-cat ~/pet-api.md
-```
+- **names**, so the API server and `kubectl` know what a Pet is called
+- an **OpenAPI schema**, so a Pet has a shape and bad values bounce
+- **CEL rules**, for house rules that depend on more than one field
+- **defaults**, and why their order relative to validation matters
+- the **status subresource**, which keeps what keepers want apart from what a controller observes
+- **printer columns**, so `kubectl get pets` shows something useful
 
-So is the paperwork:
-
-```sh
-ls ~/pets/adopted ~/pets/turned-away
-```
-
-Every Pet in `adopted/` must be let in. Every Pet in `turned-away/` must bounce off the API server with a clear error.
-Those files aren't the whole test suite, though. The spec is.
+No controller and no code: a CRD alone makes the API server store, validate, default and print a new resource type.
 
 ::remark-box
 ---
 kind: info
 ---
-There is no controller in this challenge, and you don't need one.
-A CustomResourceDefinition alone makes the API server store, validate, default and print a new resource type.
-Want to see a controller bring these pets to life? That's the
-[Build a Kubernetes Operator From Scratch](/tutorials/build-a-kubernetes-operator-from-scratch) tutorial.
+The playground has a multi-node Kubernetes cluster, and `kubectl` is ready to go on the `dev-machine`.
+Every checkpoint below turns green on its own once the cluster is in the right state.
 ::
 
-## Register the API
+## Meet the zoo
 
-Create a CustomResourceDefinition that serves `Pet` objects in the `zoo.example.com` group, version `v1alpha1`, exactly as named in the spec.
+The head zookeeper's spec is waiting for you:
+
+```sh
+cat ~/pet-api.md
+```
+
+So is the paperwork. Pets in `adopted/` must be let in, pets in `turned-away/` must bounce off the API server with a clear error:
+
+```sh
+ls ~/pets/adopted ~/pets/turned-away
+```
+
+Try to use them before there's an API:
+
+```sh
+kubectl apply --dry-run=server -f ~/pets/adopted/
+```
+
+The API server has never heard of a `Pet`: `no matches for kind "Pet" in version "zoo.example.com/v1alpha1"`. Time to teach it.
+
+## Step 1: Teach the API server the word "Pet"
+
+A CRD starts with names. The object's own name must be `<plural>.<group>`, and `spec.names` holds everything clients use to refer to the type:
+
+| Field | Value | Used for |
+|-------|-------|----------|
+| `group` + `versions[].name` | `zoo.example.com`, `v1alpha1` | the `apiVersion` in every Pet manifest |
+| `names.kind` | `Pet` | the `kind` in every Pet manifest |
+| `names.plural` / `names.singular` | `pets` / `pet` | the URL path (`/apis/zoo.example.com/v1alpha1/namespaces/zoo/pets`) and `kubectl get pet(s)` |
+| `names.shortNames` | `pt` | `kubectl get pt` |
+| `names.categories` | `zoo` | `kubectl get zoo`, the way `kubectl get all` works |
+| `scope` | `Namespaced` | Pets live in a namespace, like Pods |
+
+Every version needs a schema. For now, use the one that allows anything:
+
+```sh
+cat > ~/pet-crd.yaml <<'EOF'
+{{file:crd/1-names.yaml|strip-comments}}
+EOF
+
+kubectl apply -f ~/pet-crd.yaml
+kubectl wait --for=condition=Established crd/pets.zoo.example.com
+```
+
+The new API shows up next to the built-in ones, and the short name and category work straight away:
+
+```sh
+kubectl api-resources --api-group=zoo.example.com
+kubectl get pt -n zoo
+kubectl get zoo -n zoo
+```
 
 ::simple-task
 ---
@@ -592,26 +635,6 @@ Waiting for the `pets.zoo.example.com` CRD to be registered and established...
 The API server now knows what a Pet is. No recompiling, no restarts.
 ::
 
-::hint-box
----
-:summary: Hint 1
----
-You don't have to write a CRD from memory. `kubectl explain` works for CRDs too:
-
-```sh
-kubectl explain customresourcedefinition.spec --recursive | less
-```
-
-The Kubernetes docs page [Extend the Kubernetes API with CustomResourceDefinitions](https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/) has a complete example you can adapt.
-::
-
-Keepers are busy people. Make sure both of these work:
-
-```sh
-kubectl get pt -n zoo
-kubectl get zoo -n zoo
-```
-
 ::simple-task
 ---
 :tasks: tasks
@@ -624,10 +647,35 @@ Waiting for Pets to answer to `pt` and to the `zoo` category...
 Short names and categories are just discovery metadata, but they are what people actually type.
 ::
 
-## Enforce the spec
+Now try the pets that should be turned away:
 
-Every rule in the spec table must be enforced by the API server.
-Valid Pets must be let in, invalid ones turned away, and the checker will try more than the files in `~/pets/`.
+```sh
+kubectl apply --dry-run=server -f ~/pets/turned-away/
+```
+
+All five get in, unicorn included. `x-kubernetes-preserve-unknown-fields: true` means "store whatever you're given".
+That's handy for a first prototype, and useless as a contract.
+
+## Step 2: Describe what a Pet looks like
+
+A CRD schema is an OpenAPI v3 schema, and it must be **structural**: every field has a `type`, and every object lists its `properties`.
+Each row of the spec table maps to a schema keyword:
+
+| The spec says | Schema keyword |
+|---------------|----------------|
+| `species` is required | `required: [species]` on `spec` |
+| one of cat, dog, dragon, cactus | `enum` |
+| at most 20 characters | `maxLength` |
+| a number followed by s, m or h | `pattern` |
+| `lastFedAt` is a date-time | `format: date-time` |
+
+```sh
+cat > ~/pet-crd.yaml <<'EOF'
+{{file:crd/2-schema.yaml|strip-comments}}
+EOF
+
+kubectl apply -f ~/pet-crd.yaml
+```
 
 ::simple-task
 ---
@@ -638,8 +686,70 @@ Valid Pets must be let in, invalid ones turned away, and the checker will try mo
 Sending valid Pets to the API server (server-side dry run)...
 
 #completed
-All valid Pets were let in.
+All valid Pets are let in.
 ::
+
+Check the paperwork again. The adopted pets still get in:
+
+```sh
+kubectl apply --dry-run=server -f ~/pets/adopted/
+kubectl apply --dry-run=server -f ~/pets/turned-away/
+```
+
+The unicorn (`sparkles`) and the pet that eats `whenever` now bounce. The other three still get in.
+Two of them break rules that involve **two fields at once**, which OpenAPI is awkward at:
+a `toy` is fine unless the `species` is `cactus`, and a dragon's `feedEvery` must be at least an hour.
+
+There's also a quieter gap. A pattern checks the **shape** of a string, not its size.
+`^[0-9]+(s|m|h)$` happily accepts `0s` (a pet that is never full) and `9999999h`, which is more than Go's `time.Duration` can hold.
+Whatever controller reads this field later would choke on it.
+
+::details-box
+---
+:summary: What happens to fields the schema doesn't mention?
+---
+Try adopting a Pet with a `favoriteColor`:
+
+```sh
+kubectl create --dry-run=server -f - <<'EOF'
+apiVersion: zoo.example.com/v1alpha1
+kind: Pet
+metadata: {name: picky, namespace: zoo}
+spec: {species: cat, favoriteColor: blue}
+EOF
+```
+
+`kubectl` asks the API server for strict field validation, so the request fails with `unknown field "spec.favoriteColor"`.
+Clients that don't ask for strictness get their unknown fields silently **pruned** instead.
+Either way, nothing the schema doesn't describe ever reaches etcd.
+::
+
+## Step 3: Write the house rules in CEL
+
+CRDs can carry validation rules in the [Common Expression Language (CEL)](https://kubernetes.io/docs/reference/using-api/cel/).
+A rule lives under `x-kubernetes-validations` at some level of the schema, and `self` is the value at that level.
+The API server evaluates it on every create and update, before anything is stored.
+
+Three rules cover the gaps:
+
+- **Cacti don't play with toys.** The rule needs `species` and `toy`, so it goes on `spec`, where `self` sees both:
+  `self.species != 'cactus' || !has(self.toy)`.
+  A rule attached to `toy` itself would only run when a toy is present, and couldn't see the species.
+- **Dragons eat at most once an hour.** Also on `spec`. Compare **durations**, not strings:
+  as strings, `'59m' >= '1h'` is `true`, because `'5' > '1'`. The Kubernetes CEL library's `duration()` parses the string first,
+  so `duration('59m') >= duration('1h')` is correctly `false`.
+- **`feedEvery` between 1s and a year.** This one only needs the field itself, so it goes on `feedEvery`.
+
+```sh
+cat > ~/pet-crd.yaml <<'EOF'
+{{file:crd/3-rules.yaml|strip-comments}}
+EOF
+
+kubectl apply -f ~/pet-crd.yaml
+kubectl apply --dry-run=server -f ~/pets/turned-away/
+```
+
+Every pet in `turned-away/` bounces now, each with the message from its rule.
 
 ::simple-task
 ---
@@ -650,26 +760,8 @@ All valid Pets were let in.
 Sending invalid Pets to the API server (server-side dry run)...
 
 #completed
-Every invalid Pet was turned away before it could reach etcd.
+Every invalid Pet is turned away before it can reach etcd.
 ::
-
-::hint-box
----
-:summary: Hint 2
----
-A CRD's `openAPIV3Schema` supports much more than `type`.
-Look up `required`, `enum`, `maxLength`, `pattern` and `format`.
-A pattern can check that `feedEvery` *looks* like a duration, but not how long it is. For that, you need the same tool as for the house rules below.
-
-You can test your schema without creating anything:
-
-```sh
-kubectl apply --dry-run=server -f ~/pets/turned-away/
-```
-::
-
-The house rules are awkward to express in a plain OpenAPI schema: whether `toy` is allowed depends on `species`,
-and "at least an hour" means comparing durations, not strings.
 
 ::simple-task
 ---
@@ -683,18 +775,48 @@ Checking that cacti can't have toys and dragons don't snack...
 Cross-field rules, enforced entirely by the API server.
 ::
 
-::hint-box
----
-:summary: Hint 3
----
-CRDs can carry validation rules written in the
-[Common Expression Language (CEL)](https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/#validation-rules).
-Look for `x-kubernetes-validations`. A rule attached to `spec` can see all of spec's fields through `self`,
-and the [Kubernetes CEL libraries](https://kubernetes.io/docs/reference/using-api/cel/) include a `duration()` function.
-::
+Look closely at the error for `lazy-dragon`, though:
 
-Keepers shouldn't have to spell out the obvious. A Pet with only a `species` must come back from the API server with the default diet from the spec,
-and a Pet that gives only part of its diet (say, just `food`) must get the missing field filled in too.
+```
+spec: Invalid value: "object": no such key: diet evaluating rule: dragons eat at most once an hour ...
+```
+
+The lazy dragon has no `diet` block at all, so the rule crashed trying to read `self.diet.feedEvery`.
+It was rejected by accident. A cat without a diet gets in only because `self.species != 'dragon'` is true and CEL never looks further.
+The spec says a Pet without a diet eats snacks every 10 minutes. Time to make the API server say so too.
+
+## Step 4: Fill in the obvious with defaults
+
+`default:` sets a value when a field is missing. Two details matter here.
+
+**Defaults only apply where the parent exists.** A default on `diet.food` does nothing for a Pet with no `diet` block,
+because there's no object to put `food` into. Give `diet` itself a default of `{}`: the API server creates the empty object first,
+then fills in its fields.
+
+**Defaulting runs before validation.** The lazy dragon gets `feedEvery: 10m` from the default, and only then do the rules run.
+So it's rejected for the right reason now, and `self.diet.feedEvery` is always safe to read.
+
+![The path of a request through the API server: decoding, then defaulting, then OpenAPI and CEL validation, then etcd. The lazy dragon gets its default diet before the dragon rule sees it.](__static__/request-pipeline.png)
+
+```sh
+cat > ~/pet-crd.yaml <<'EOF'
+{{file:crd/4-defaults.yaml|strip-comments}}
+EOF
+
+kubectl apply -f ~/pet-crd.yaml
+kubectl apply --dry-run=server -f ~/pets/turned-away/lazy-dragon.yaml
+```
+
+See what a minimal Pet looks like once the API server has filled it in:
+
+```sh
+kubectl create --dry-run=server -o yaml -f - <<'EOF'
+apiVersion: zoo.example.com/v1alpha1
+kind: Pet
+metadata: {name: minimal, namespace: zoo}
+spec: {species: cat}
+EOF
+```
 
 ::simple-task
 ---
@@ -702,25 +824,35 @@ and a Pet that gives only part of its diet (say, just `food`) must get the missi
 :name: verify_defaults
 ---
 #active
-Creating a minimal Pet and checking which defaults the API server filled in...
+Creating minimal Pets and checking which defaults the API server filled in...
 
 #completed
 Defaults are applied by the API server, so every client sees the same object.
 ::
 
-::hint-box
----
-:summary: Hint 4
----
-`default:` is a valid schema keyword in CRDs.
-Watch out for `diet`: if the object doesn't have a `diet` block at all, there's nothing for the nested defaults to attach to.
-And look closely at `~/pets/turned-away/lazy-dragon.yaml`. Defaults are applied *before* validation.
-::
+## Step 5: Separate spec from status, and make `kubectl get` useful
 
-## Separate spec from status
+A Pet's `spec` is what the keepers want. Its `status` is what the future pet controller observes, like the pet's mood.
+They should be written by different people, through different doors.
 
-The future pet controller will report each pet's mood in `.status`. Keepers must not be able to write it along with their spec,
-and the schema must describe the two status fields from the spec.
+`subresources.status: {}` gives Pets a separate `/status` endpoint:
+
+- the main endpoint ignores whatever a client sends in `.status`
+- the `/status` endpoint ignores whatever a client sends in `.spec`
+- `metadata.generation` only goes up when the spec changes, which is how a controller later tells whether it has caught up
+
+The schema has to describe `status` too. Undeclared status fields are pruned just like undeclared spec fields.
+
+Finally, `kubectl get pets` only shows `NAME` and `AGE` so far. `additionalPrinterColumns` adds columns from any field.
+Once you define your own, `AGE` isn't added for you anymore, so declare it explicitly.
+
+```sh
+cat > ~/pet-crd.yaml <<'EOF'
+{{file:crd/5-status-and-columns.yaml|strip-comments}}
+EOF
+
+kubectl apply -f ~/pet-crd.yaml
+```
 
 ::simple-task
 ---
@@ -728,15 +860,11 @@ and the schema must describe the two status fields from the spec.
 :name: verify_status_subresource
 ---
 #active
-Waiting for Pet to get a dedicated status subresource...
+Waiting for Pet to get a status subresource and a status schema...
 
 #completed
 `.status` is now written through its own endpoint, and any `.status` in a regular create or update is ignored.
 ::
-
-## Make `kubectl get` useful
-
-`kubectl get pets` should show the columns from the spec: `SPECIES`, `FACE`, `MOOD`, `TOY`, `LAST FED`, and `AGE`.
 
 ::simple-task
 ---
@@ -750,17 +878,20 @@ Waiting for the printer columns to be defined...
 Much better than a lonely `NAME` column.
 ::
 
-::hint-box
----
-:summary: Hint 5
----
-Look up `additionalPrinterColumns` in the CRD version spec.
-Each column needs a `name`, a `type` and a `jsonPath`.
-::
+## Step 6: Open the gates
 
-## Open the gates
+Let in the four pets from `adopted/`:
 
-Let in the four pets from `~/pets/adopted/`, as they are, and no one else.
+```sh
+kubectl apply -f ~/pets/adopted/
+kubectl get pets -n zoo
+```
+
+Every pet got the columns, and the defaulted diet shows up in the stored objects:
+
+```sh
+kubectl get pet -n zoo mochi -o jsonpath='{.spec.diet}{"\n"}'
+```
 
 ::simple-task
 ---
@@ -774,13 +905,36 @@ Waiting for mochi, rex, smaug and prickles to arrive in the `zoo` namespace...
 The zoo has its first residents.
 ::
 
-Finally, pretend to be the pet controller. Mochi just had a nap in the sun.
-Record that on its status, without touching its spec:
+The `FACE` and `MOOD` columns are empty, because nobody has written a status yet. Pretend to be the pet controller.
+First, try the obvious way, and watch it get ignored:
 
-- `mood`: `Happy`
-- `face`: `😺`
+```sh
+kubectl patch pet mochi -n zoo --type=merge -p '{"status":{"mood":"Happy","face":"😺"}}'
+kubectl get pet mochi -n zoo
+```
 
-Then run `kubectl get pets -n zoo` and enjoy the view.
+The main endpoint dropped the status. Target the `/status` subresource instead:
+
+```sh
+kubectl patch pet mochi -n zoo --subresource=status --type=merge \
+  -p '{"status":{"mood":"Happy","face":"😺"}}'
+
+kubectl get pets -n zoo
+```
+
+```
+NAME       SPECIES   FACE   MOOD    TOY     LAST FED   AGE
+mochi      cat       😺      Happy   yarn               1m
+prickles   cactus                                      1m
+rex        dog                      stick              1m
+smaug      dragon                                      1m
+```
+
+Mochi's `generation` is still `1`: the status write didn't count as a spec change.
+
+```sh
+kubectl get pet mochi -n zoo -o jsonpath='{.metadata.generation}{"\n"}'
+```
 
 ::simple-task
 ---
@@ -792,13 +946,19 @@ Waiting for mochi to report a happy mood...
 
 #completed
 That's a controller's whole job, done by hand: watch the spec, act on it, write the result to status.
-If you want to see one do it for real, and watch mochi get hungry, try the operator tutorial next.
 ::
 
-::hint-box
----
-:summary: Hint 6
----
-`kubectl apply`, `kubectl edit` and `kubectl patch` all target the main resource by default,
-and the main resource ignores `.status` now. Check `kubectl patch --help` for a flag that picks a subresource.
-::
+## What you built
+
+| Feature | What it gives you |
+|---------|-------------------|
+| `spec.names` | the kind, the URL path, short names and categories |
+| OpenAPI schema | types, required fields, enums, lengths, patterns, formats; unknown fields never stored |
+| CEL rules (`x-kubernetes-validations`) | rules across fields, and real duration comparisons |
+| `default:` | values filled in on the server, before validation, for every client |
+| `subresources.status` | spec and status written through separate endpoints; `generation` tracks spec changes only |
+| `additionalPrinterColumns` | a `kubectl get` output people can read |
+
+All of it runs inside the API server. Nothing in the cluster reacts to a Pet yet, though: mochi will never actually get hungry.
+To bring the pets to life, with a controller that gives each one a Pod, gets it hungry over time and lets it run away when nobody feeds it, continue with
+[Build a Kubernetes Operator From Scratch: A Pet That Gets Hungry](/tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c).

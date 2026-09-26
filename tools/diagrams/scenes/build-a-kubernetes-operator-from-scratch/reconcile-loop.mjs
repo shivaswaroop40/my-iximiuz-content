@@ -2,7 +2,7 @@ import { INK, BLUE, SALMON, text, block, cloud, curve } from "../_lib.mjs";
 
 export default {
   name: "reconcile-loop",
-  out: "tutorials/build-a-kubernetes-operator-from-scratch/__static__",
+  out: "tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c/__static__",
   elements: [
     text(640, 0, "What wakes the controller up", { size: 40, align: "center" }),
 

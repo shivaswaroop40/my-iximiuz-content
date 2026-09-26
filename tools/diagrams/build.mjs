@@ -1,7 +1,8 @@
 // Renders every scene in scenes/**/*.mjs with Excalidraw's own exporter.
 //
 // For each scene it writes:
-//   <scene.out>/<scene.name>.png         the image the markdown embeds (2x, white background)
+//   <scene.out>/<scene.name>.png         the image the markdown embeds (2x, white background);
+//                                        `out` can be a list when several pages embed the same diagram
 //   excalidraw/<slug>/<scene.name>.svg   an SVG preview (fonts inlined) that GitHub renders
 //   excalidraw/<slug>/<scene.name>.excalidraw   the editable source: open it on excalidraw.com,
 //                                        tweak, and save it back to override the generated one
@@ -109,9 +110,11 @@ for (const file of await findScenes(path.join(HERE, "scenes"))) {
     return { elements, svg: svg.outerHTML, png };
   }, { skeleton: scene.elements, saved, grid: scene.grid !== false });
 
-  const outDir = path.join(REPO, scene.out);
-  await fs.mkdir(outDir, { recursive: true });
-  await fs.writeFile(path.join(outDir, `${scene.name}.png`), Buffer.from(result.png));
+  const outDirs = [scene.out].flat().map((out) => path.join(REPO, out));
+  for (const outDir of outDirs) {
+    await fs.mkdir(outDir, { recursive: true });
+    await fs.writeFile(path.join(outDir, `${scene.name}.png`), Buffer.from(result.png));
+  }
   await fs.mkdir(path.dirname(editable), { recursive: true });
   await fs.writeFile(editable.replace(/\.excalidraw$/, ".svg"), result.svg);
   if (!saved) {
@@ -120,7 +123,7 @@ for (const file of await findScenes(path.join(HERE, "scenes"))) {
       elements: result.elements, appState: { viewBackgroundColor: "#ffffff", gridSize: null }, files: {},
     }, null, 2));
   }
-  console.log(`${saved ? "edited   " : "generated"} ${rel} -> ${path.relative(REPO, outDir)}/${scene.name}.png`);
+  console.log(`${saved ? "edited   " : "generated"} ${rel} -> ${outDirs.map((d) => path.relative(REPO, d)).join(", ")} (${scene.name}.png)`);
   count++;
 }
 

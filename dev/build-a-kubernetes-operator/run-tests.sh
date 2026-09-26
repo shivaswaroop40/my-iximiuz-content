@@ -15,7 +15,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-TUTORIAL="$HERE/../../tutorials/build-a-kubernetes-operator-from-scratch/index.md"
+TUTORIAL="$HERE/../../tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c/index.md"
 WORK="$(mktemp -d)"
 export HOME="$WORK/home"
 mkdir -p "$HOME"
