@@ -40,18 +40,21 @@ To go back to the generated version, delete the `.excalidraw` file and rebuild.
 
 ## Style
 
-- **Excalifont** (Excalidraw's default hand-drawn font), roughness 1, stroke width 2.
-- Excalidraw's palette, pastel fill with a matching darker stroke and label:
+Pen on graph paper, after the hand-drawn diagrams on iximiuz Labs:
 
-  | role | colour |
+- **Faint 20px grid** behind everything (added at export time, so the `.excalidraw` files stay clean).
+- **Thin black ink**, Virgil hand-lettering. Big free-floating titles, no boxes around labels.
+- **Objects are drawn, not boxed**: `block()` for things that run (API server, controller, Pod) as 3D blocks
+  with a light top and a gray side; `doc()` for Kubernetes objects you can `cat` (a sheet with a folded
+  corner and mono-spaced YAML); `cylinder()` for etcd; `bin()` for the garbage collector; `person()` for you.
+- **Colour is only for meaning**:
+
+  | colour | used for |
   |---|---|
-  | custom resources (Pet), API objects you write | blue `#a5d8ff` / `#1971c2` |
-  | Pods, things that run, success | green `#b2f2bb` / `#2f9e44` |
-  | ConfigMaps, timers, warnings, defaults | yellow `#ffec99` / `#f08c00` |
-  | controllers, Reconcile | violet `#d0bfff` / `#6741d9` |
-  | errors, rejections, deletion | red `#ffc9c9` / `#e03131` |
-  | users, tools, optional or not-used parts | gray `#e9ecef` / `#495057` (dashed if optional) |
+  | blue `#2f6fe4` | data flow and actions: smooth `curve()`s, like cables |
+  | salmon `#f08c8c` | callouts: `cloud()`s and the lines tying them to things, ownerReferences |
+  | red `#e03131` | errors, rejections, deletion, `cross()`-ing things out |
+  | gray `#868e96` | commands and side notes |
 
-- Dashed gray arrows for references (ownerReferences); solid black arrows for actions and data flow.
-- Dashed zones with a title for "where it runs" (kube-apiserver + etcd, a controller).
-- One idea per diagram, labels next to arrows rather than on them, white background, 2x PNG.
+- Curves, not straight arrows. Labels sit next to curves, never on them.
+- One idea per diagram, 2x PNG.

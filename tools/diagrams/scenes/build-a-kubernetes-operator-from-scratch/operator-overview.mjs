@@ -1,42 +1,41 @@
-import { C, MUTED, box, zone, text, arrow } from "../_lib.mjs";
-
-const OUT = "tutorials/build-a-kubernetes-operator-from-scratch/__static__";
+import { INK, BLUE, SALMON, text, block, doc, cloud, person, curve } from "../_lib.mjs";
 
 export default {
   name: "operator-overview",
-  out: OUT,
+  out: "tutorials/build-a-kubernetes-operator-from-scratch/__static__",
   elements: [
-    box("you", 0, 90, 170, 90, "you\n(kubectl)", C.gray),
+    text(660, 0, "A Pet Operator", { size: 48, align: "center" }),
 
-    ...zone("api", 250, 0, 380, 330, "kube-apiserver + etcd"),
-    box("pet", 280, 50, 320, 250, null, C.blue),
-    text(300, 62, "Pet  zoo/mochi", { size: 22, color: C.blue.stroke }),
-    text(300, 102, "spec:\n  species: cat\n  diet:\n    feedEvery: 10m\n  lastFedAt: 12:00", { size: 17, color: C.blue.stroke }),
-    text(300, 222, "status:\n  mood: Happy", { size: 17, color: C.violet.stroke }),
+    ...person(80, 190),
+    curve([[112, 250], [190, 240], [258, 280]], { color: INK }),
+    text(118, 330, "kubectl apply\n& feed mochi", { size: 20 }),
 
-    box("ctrl", 760, 95, 250, 110, "pet-operator\nReconcile loop", C.violet, { fontSize: 22 }),
+    ...block("api", 262, 160, 330, 305, "kube-apiserver + etcd", { labelY: 10, size: 20 }),
+    ...doc("pet", 285, 200, 285, 240, "Pet zoo/mochi",
+      "spec:\n  species: cat\n  diet:\n    feedEvery: 10m\n  lastFedAt: \"12:00\"\nstatus:\n  mood: Happy"),
 
-    box("cm", 640, 440, 230, 90, "ConfigMap\nmochi-card", C.yellow),
-    box("pod", 990, 440, 200, 90, "Pod\nmochi", C.green),
+    ...block("ctrl", 820, 190, 260, 165, "pet-operator", { labelY: 16, size: 26 }),
+    curve([[912, 282], [950, 296], [990, 282], [982, 256], [950, 250], [920, 262]], { color: INK, strokeWidth: 1.5 }),
+    text(950, 312, "reconcile loop", { size: 18, align: "center" }),
 
-    arrow("you", "right", "pet", "left", { toOffset: -60 }),
-    text(180, 58, "writes spec\n(apply, feed)", { size: 16 }),
+    curve([[572, 245], [700, 205], [818, 232]]),
+    text(690, 178, "watch", { size: 20, color: BLUE }),
+    curve([[818, 292], [700, 350], [574, 400]]),
+    text(632, 272, "writes status", { size: 20, color: BLUE }),
 
-    arrow("pet", "right", "ctrl", "left", { fromOffset: -70, toOffset: -25 }),
-    text(640, 50, "watch", { size: 16 }),
-    arrow("ctrl", "left", "pet", "right", { fromOffset: 25, toOffset: 60 }),
-    text(652, 225, "write status", { size: 16, color: C.violet.stroke }),
+    ...doc("cm", 700, 480, 240, 185, "ConfigMap mochi-card", "  /\\_/\\\n ( ^.^ )\n  > ^ <\nmochi is happy.", { titleSize: 18, size: 17 }),
+    ...block("pod", 1040, 510, 200, 140, "Pod\nmochi", { size: 24 }),
 
-    arrow("ctrl", "bottom", "cm", "top", { fromOffset: -50 }),
-    text(650, 330, "CreateOrUpdate\nthe card", { size: 16, color: C.violet.stroke }),
-    arrow("ctrl", "bottom", "pod", "top", { fromOffset: 50 }),
-    text(1000, 330, "create, or delete\nif it ran away", { size: 16, color: C.violet.stroke }),
+    curve([[900, 357], [870, 420], [840, 478]]),
+    text(668, 425, "CreateOrUpdate", { size: 19, color: BLUE }),
+    curve([[1010, 357], [1080, 420], [1130, 488]]),
+    text(1095, 395, "creates, or deletes\nif it runs away", { size: 19, color: BLUE }),
+    curve([[942, 575], [990, 568], [1038, 580]]),
+    text(990, 540, "mounted", { size: 17, color: BLUE, align: "center" }),
 
-    arrow("cm", "right", "pod", "left"),
-    text(890, 440, "mounted\nat /pet", { size: 14 }),
-
-    arrow("cm", "left", "pet", "bottom", { dashed: true, color: MUTED, via: [[440, 485]] }),
-    text(470, 370, "ownerReferences:\nboth point at\nthe Pet", { size: 16, color: MUTED }),
-    arrow("pod", "bottom", "pet", "bottom", { dashed: true, color: MUTED, fromOffset: 0, toOffset: -60, via: [[1090, 580], [380, 580]] }),
+    ...cloud("refs", 450, 650, 330, 120, "ownerReferences:\nboth point at the Pet"),
+    curve([[450, 590], [455, 530], [440, 468]], { color: SALMON, dashed: true }),
+    curve([[698, 600], [650, 630], [616, 640]], { color: SALMON, head: false }),
+    curve([[1140, 652], [1100, 730], [800, 740], [606, 685]], { color: SALMON, head: false }),
   ],
 };

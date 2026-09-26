@@ -1,44 +1,45 @@
-import { C, MUTED, box, text, arrow, line } from "../_lib.mjs";
+import { BLUE, SALMON, RED, text, block, doc, cloud, cylinder, curve } from "../_lib.mjs";
 
-const OUT = "tutorials/build-a-kubernetes-operator-from-scratch/__static__";
-const Y = 60, H = 110, W = 190, GAP = 50;
-const x = (i) => 170 + i * (W + GAP);
+const Y = 150, W = 170, H = 100;
+const x = (i) => 170 + i * 215;
+const mid = (i) => x(i) + W / 2;
 
 export default {
   name: "request-pipeline",
-  out: OUT,
+  out: "tutorials/build-a-kubernetes-operator-from-scratch/__static__",
   elements: [
-    text(0, 0, "What happens to a Pet on its way to etcd", { size: 26 }),
+    text(700, 0, "What happens to a Pet on its way to etcd", { size: 40, align: "center" }),
 
-    box("in", 0, Y + 15, 120, 80, "kubectl\napply", C.gray),
-    box("decode", x(0), Y, W, H, "1. decode\nunknown fields\nare pruned", C.blue, { fontSize: 18 }),
-    box("default", x(1), Y, W, H, "2. defaulting\ndiet: {} then\nsnacks, 10m", C.blue, { fontSize: 18 }),
-    box("mutate", x(2), Y, W, H, "mutating\nwebhooks", C.gray, { dashed: true, fontSize: 18 }),
-    box("validate", x(3), Y, W, H, "3. validation\nOpenAPI schema\n+ CEL rules", C.blue, { fontSize: 18 }),
-    box("vwh", x(4), Y, W, H, "validating\nwebhooks", C.gray, { dashed: true, fontSize: 18 }),
-    box("etcd", x(5), Y + 15, 130, 80, "etcd", C.green, { fontSize: 22 }),
+    ...doc("pet", 0, 140, 125, 120, "Pet", "species:\n  dragon", { size: 15 }),
+    ...block("decode", x(0), Y, W, H, "decode,\nprune unknown\nfields", { size: 19 }),
+    ...block("default", x(1), Y, W, H, "defaulting", { size: 22 }),
+    ...block("mutate", x(2), Y, W, H, "mutating\nwebhooks", { size: 20, dashed: true }),
+    ...block("validate", x(3), Y, W, H, "schema\n+ CEL rules", { size: 22 }),
+    ...block("vwh", x(4), Y, W, H, "validating\nwebhooks", { size: 20, dashed: true }),
+    ...cylinder("etcd", x(5), Y - 10, 120, 130, "etcd"),
+    text(mid(2), Y + H + 10, "(none here)", { size: 17, align: "center" }),
+    text(mid(4), Y + H + 10, "(none here)", { size: 17, align: "center" }),
 
-    arrow("in", "right", "decode", "left"),
-    arrow("decode", "right", "default", "left"),
-    arrow("default", "right", "mutate", "left"),
-    arrow("mutate", "right", "validate", "left"),
-    arrow("validate", "right", "vwh", "left"),
-    arrow("vwh", "right", "etcd", "left"),
-    text(x(2) + 10, Y + H + 12, "(none here)", { size: 15, color: MUTED }),
-    text(x(4) + 10, Y + H + 12, "(none here)", { size: 15, color: MUTED }),
+    curve([[127, 200], [148, 190], [168, 200]]),
+    ...[0, 1, 2, 3].map((i) => curve([[x(i) + W + 12, Y + H / 2 - 12], [x(i) + W + 28, Y + H / 2 - 20], [x(i + 1) - 2, Y + H / 2]])),
+    curve([[x(4) + W + 12, Y + H / 2 - 12], [x(4) + W + 30, Y + H / 2 - 20], [x(5) - 2, Y + H / 2]]),
 
-    // What mochi and friends run into
-    box("r-unicorn", x(3) - 20, 260, 230, 70, "species: unicorn\nnot in the enum", C.red, { fontSize: 16 }),
-    box("r-cactus", x(3) - 20, 345, 230, 70, "cactus with a toy\nCEL rule says no", C.red, { fontSize: 16 }),
-    line(x(3) + W / 2, Y + H, x(3) + W / 2, 258, { color: C.red.stroke }),
+    // Rejected at validation
+    ...cloud("unicorn", 700, 370, 270, 105, "species: unicorn?\nnot in the enum"),
+    ...cloud("cactus", 1110, 370, 270, 105, "a cactus with a toy?\nthe CEL rule says no"),
+    curve([[mid(3) - 20, Y + H + 4], [800, 290], [730, 322]], { color: SALMON, head: false }),
+    curve([[mid(3) + 20, Y + H + 4], [990, 290], [1080, 322]], { color: SALMON, head: false }),
 
-    box("dragon", x(1) - 20, 440, 230, 80, "dragon, no diet\ngets feedEvery: 10m", C.yellow, { fontSize: 16 }),
-    box("r-dragon", x(3) - 20, 440, 230, 80, "then fails\n\"at most once an hour\"", C.red, { fontSize: 16 }),
-    arrow("dragon", "right", "r-dragon", "left", { color: C.red.stroke }),
-    line(x(1) + W / 2, Y + H, x(1) + W / 2, 438, { color: C.yellow.stroke, dashed: true }),
-    text(x(1) - 20, 530, "defaulting runs before validation", { size: 16, color: C.yellow.stroke }),
+    // The lazy dragon: defaulted first, rejected second
+    ...cloud("dragon", 400, 470, 300, 130, "a dragon with no diet\ngets the default\nfeedEvery: 10m"),
+    curve([[mid(1), Y + H + 4], [mid(1) - 10, 340], [415, 410]], { color: SALMON, head: false }),
+    ...cloud("fails", 900, 560, 300, 115, "...and then fails\n\"at most once an hour\""),
+    curve([[mid(3), Y + H + 4], [895, 400], [900, 505]], { color: SALMON, head: false }),
+    curve([[548, 500], [680, 560], [748, 560]], { color: RED }),
+    text(240, 595, "defaulting runs before validation", { size: 21, color: RED }),
 
-    box("ok", x(5) - 40, 260, 190, 70, "mochi, a cat\nwith yarn: stored", C.green, { fontSize: 16 }),
-    line(x(5) + 65, Y + 95, x(5) + 55, 258, { color: C.green.stroke }),
+    // Accepted
+    text(x(5) + 60, 310, "mochi, a cat\nwith yarn:\nstored", { size: 19, align: "center", color: BLUE }),
+    curve([[x(5) + 60, Y + 125], [x(5) + 64, 285], [x(5) + 60, 305]]),
   ],
 };

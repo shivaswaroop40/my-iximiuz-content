@@ -1,46 +1,42 @@
-import { C, MUTED, box, text, arrow, line } from "../_lib.mjs";
-
-const OUT = "tutorials/build-a-kubernetes-operator-from-scratch/__static__";
+import { INK, BLUE, SALMON, text, block, cloud, curve } from "../_lib.mjs";
 
 export default {
   name: "reconcile-loop",
-  out: OUT,
+  out: "tutorials/build-a-kubernetes-operator-from-scratch/__static__",
   elements: [
-    text(0, 0, "What wakes the controller up, and what it does then", { size: 26 }),
+    text(640, 0, "What wakes the controller up", { size: 40, align: "center" }),
 
-    // Triggers
-    box("t-pet", 0, 70, 280, 70, "a Pet is created,\nchanged or deleted", C.blue, { fontSize: 17 }),
-    box("t-owned", 0, 160, 280, 70, "a Pod or ConfigMap owned\nby a Pet changes: queue\nthe owner", C.green, { fontSize: 16 }),
-    box("t-timer", 0, 250, 280, 70, "a RequeueAfter\ntimer fires", C.yellow, { fontSize: 17 }),
-    box("t-start", 0, 340, 280, 70, "the operator starts:\nLIST everything", C.gray, { fontSize: 17 }),
+    // Triggers: every one of them just drops a name into the queue
+    text(0, 100, "a Pet is created,\nchanged or deleted", { size: 20 }),
+    text(0, 195, "an owned Pod or ConfigMap\nchanges: queue its owner", { size: 20 }),
+    text(0, 290, "a RequeueAfter\ntimer fires", { size: 20 }),
+    text(0, 385, "the operator starts:\nLIST everything", { size: 20 }),
+    curve([[205, 125], [300, 140], [398, 238]]),
+    curve([[282, 220], [330, 240], [398, 262]]),
+    curve([[168, 315], [290, 300], [398, 288]]),
+    curve([[208, 410], [310, 390], [398, 312]]),
 
-    box("queue", 380, 170, 200, 140, "work queue\n\nzoo/mochi\nzoo/smaug", C.white, { fontSize: 18 }),
-    text(380, 320, "just names,\nno duplicates", { size: 15, color: MUTED }),
+    ...block("queue", 400, 200, 220, 140, "work queue", { labelY: 12, size: 22 }),
+    text(510, 250, "zoo/mochi\nzoo/smaug", { size: 19, align: "center", font: 3 }),
+    text(510, 360, "just names,\nno duplicates", { size: 18, align: "center" }),
 
-    arrow("t-pet", "right", "queue", "left", { toOffset: -45 }),
-    arrow("t-owned", "right", "queue", "left", { toOffset: -15 }),
-    arrow("t-timer", "right", "queue", "left", { toOffset: 15 }),
-    arrow("t-start", "right", "queue", "left", { toOffset: 45 }),
+    curve([[642, 255], [690, 240], [738, 250]]),
+    text(690, 200, "one at\na time", { size: 17, align: "center", color: BLUE }),
 
-    // Reconcile
-    box("rec", 680, 60, 400, 380, null, C.violet),
-    text(700, 72, "Reconcile(ctx, \"zoo/mochi\")", { size: 22, color: C.violet.stroke }),
-    box("s1", 705, 120, 350, 60, "1. observe: read the Pet\n(from the informer cache)", C.white, { fontSize: 16, textColor: C.violet.stroke }),
-    box("s2", 705, 195, 350, 60, "2. compute: mood from\nlastFedAt + feedEvery + now", C.white, { fontSize: 16, textColor: C.violet.stroke }),
-    box("s3", 705, 270, 350, 60, "3. act: CreateOrUpdate the card,\ncreate or delete the Pod", C.white, { fontSize: 16, textColor: C.violet.stroke }),
-    box("s4", 705, 345, 350, 75, "4. report: write status,\nreturn RequeueAfter =\ntime until the mood changes", C.white, { fontSize: 16, textColor: C.violet.stroke }),
-    arrow("s1", "bottom", "s2", "top", { color: C.violet.stroke }),
-    arrow("s2", "bottom", "s3", "top", { color: C.violet.stroke }),
-    arrow("s3", "bottom", "s4", "top", { color: C.violet.stroke }),
+    ...block("rec", 740, 120, 430, 330, "Reconcile(\"zoo/mochi\")", { labelY: 14, size: 24 }),
+    text(765, 175,
+      "1. observe: get the Pet\n     from the cache\n" +
+      "2. compute the mood from\n     lastFedAt, feedEvery, now\n" +
+      "3. act: CreateOrUpdate the card,\n     create or delete the Pod\n" +
+      "4. report: write status, return\n     RequeueAfter = time until\n     the mood changes", { size: 19 }),
 
-    arrow("queue", "right", "rec", "left", { fromOffset: -30, toOffset: -30 }),
-    text(592, 175, "one\nat a time", { size: 14 }),
+    // The timer loop
+    curve([[955, 452], [950, 570], [500, 600], [-40, 560], [-30, 330], [-4, 318]]),
+    text(330, 548, "RequeueAfter: \"call me again in 60s\"", { size: 20, color: BLUE }),
 
-    // Loops back
-    arrow("s4", "bottom", "t-timer", "left", { color: C.yellow.stroke, dashed: true, via: [[880, 500], [-40, 500], [-40, 285]] }),
-    text(330, 470, "schedules the next wake-up (\"call me again in 60s\")", { size: 15, color: C.yellow.stroke }),
-    box("err", 1130, 200, 200, 90, "error? e.g. a\nconflict: back in\nthe queue, backoff", C.red, { fontSize: 15 }),
-    line(1080, 245, 1128, 245, { color: C.red.stroke }),
-    line(1230, 200, 480, 168, { color: C.red.stroke, dashed: true, via: [[1230, 48], [480, 48]] }),
+    // Errors go back into the queue
+    ...cloud("err", 1330, 300, 250, 130, "a conflict?\nback in the queue,\nwith a backoff"),
+    curve([[1195, 300], [1215, 295], [1210, 300]], { color: SALMON, head: false }),
+    curve([[1330, 234], [1300, 80], [520, 80], [510, 176]], { color: SALMON, dashed: true }),
   ],
 };

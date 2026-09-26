@@ -76,15 +76,38 @@ for (const file of await findScenes(path.join(HERE, "scenes"))) {
     if (json.source !== "generated") saved = json.elements;
   } catch {}
 
-  const result = await page.evaluate(async ({ skeleton, saved }) => {
-    const { convertToExcalidrawElements, exportToSvg, exportToBlob } = window.excalidrawExport;
+  const result = await page.evaluate(async ({ skeleton, saved, grid }) => {
+    const { convertToExcalidrawElements, exportToSvg, exportToCanvas } = window.excalidrawExport;
     const elements = saved ?? convertToExcalidrawElements(skeleton, { regenerateIds: false });
-    const appState = { exportBackground: true, viewBackgroundColor: "#ffffff", exportWithDarkMode: false, exportPadding: 24 };
-    const svg = await exportToSvg({ elements, appState, files: null, exportPadding: 24 });
-    const blob = await exportToBlob({ elements, appState, files: null, mimeType: "image/png", getDimensions: (w, h) => ({ width: w * 2, height: h * 2, scale: 2 }), exportPadding: 24 });
+    const pad = 36, scale = 2;
+    const svg = await exportToSvg({
+      elements, files: null, exportPadding: pad,
+      appState: { exportBackground: true, viewBackgroundColor: "#ffffff", exportWithDarkMode: false },
+    });
+    // Draw the diagram on graph paper: white, with a faint 20px grid, like a sketchbook page.
+    const art = await exportToCanvas({
+      elements, files: null, exportPadding: pad,
+      appState: { exportBackground: false, exportWithDarkMode: false },
+      getDimensions: (w, h) => ({ width: w * scale, height: h * scale, scale }),
+    });
+    const page = document.createElement("canvas");
+    page.width = art.width;
+    page.height = art.height;
+    const ctx = page.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, page.width, page.height);
+    if (grid) {
+      ctx.strokeStyle = "#eceef1";
+      ctx.lineWidth = 2;
+      const step = 20 * scale;
+      for (let x = 0.5; x < page.width; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, page.height); ctx.stroke(); }
+      for (let y = 0.5; y < page.height; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(page.width, y); ctx.stroke(); }
+    }
+    ctx.drawImage(art, 0, 0);
+    const blob = await new Promise((r) => page.toBlob(r, "image/png"));
     const png = Array.from(new Uint8Array(await blob.arrayBuffer()));
     return { elements, svg: svg.outerHTML, png };
-  }, { skeleton: scene.elements, saved });
+  }, { skeleton: scene.elements, saved, grid: scene.grid !== false });
 
   const outDir = path.join(REPO, scene.out);
   await fs.mkdir(outDir, { recursive: true });

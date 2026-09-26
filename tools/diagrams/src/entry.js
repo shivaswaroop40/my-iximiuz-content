@@ -3,6 +3,7 @@ import {
   convertToExcalidrawElements,
   exportToSvg,
   exportToBlob,
+  exportToCanvas,
 } from "@excalidraw/excalidraw";
 
-window.excalidrawExport = { convertToExcalidrawElements, exportToSvg, exportToBlob };
+window.excalidrawExport = { convertToExcalidrawElements, exportToSvg, exportToBlob, exportToCanvas };

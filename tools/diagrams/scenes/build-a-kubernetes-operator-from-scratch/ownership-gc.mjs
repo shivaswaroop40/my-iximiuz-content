@@ -1,31 +1,35 @@
-import { C, MUTED, box, zone, text, arrow } from "../_lib.mjs";
-
-const OUT = "tutorials/build-a-kubernetes-operator-from-scratch/__static__";
+import { INK, BLUE, SALMON, RED, MUTED, text, block, doc, cloud, bin, cross, curve } from "../_lib.mjs";
 
 export default {
   name: "ownership-gc",
-  out: OUT,
+  out: "tutorials/build-a-kubernetes-operator-from-scratch/__static__",
   elements: [
-    // Left: the bash controller
-    ...zone("left", 0, 0, 440, 400, "bash controller (Part 2)"),
-    box("goldie", 40, 60, 170, 70, "Pet goldie\n(deleted)", C.blue, { dashed: true, textColor: MUTED }),
-    box("gpod", 40, 240, 200, 90, "Pod goldie\nownerReferences: none", C.green, { fontSize: 16 }),
-    text(250, 255, "still running,\nforever", { size: 17, color: C.red.stroke }),
-    text(60, 160, "nothing links them", { size: 16, color: MUTED }),
+    // Left: the bash controller leaves orphans
+    text(200, 0, "bash controller", { size: 32, align: "center" }),
+    ...doc("goldie", 70, 110, 200, 110, "Pet goldie", "species: dog", { size: 16 }),
+    ...cross(80, 120, 180, 90),
+    text(170, 70, "kubectl delete pet goldie", { size: 17, align: "center", color: MUTED }),
+    ...block("gpod", 70, 300, 200, 110, "Pod\ngoldie", { size: 22 }),
+    text(170, 430, "ownerReferences: none", { size: 18, align: "center" }),
+    ...cloud("orphan", 320, 560, 280, 110, "an orphan:\nit runs forever"),
+    curve([[260, 420], [285, 470], [300, 500]], { color: SALMON, head: false }),
 
-    // Right: the operator
-    ...zone("right", 500, 0, 700, 400, "pet-operator (Part 3)"),
-    box("smaug", 540, 60, 170, 70, "Pet smaug", C.blue),
-    box("spod", 540, 240, 190, 90, "Pod smaug", C.green),
-    box("scm", 760, 240, 190, 90, "ConfigMap\nsmaug-card", C.yellow),
-    arrow("spod", "top", "smaug", "bottom", { dashed: true, color: MUTED, fromOffset: -40, toOffset: -40 }),
-    arrow("scm", "top", "smaug", "bottom", { dashed: true, color: MUTED, toOffset: 40, via: [[855, 172], [665, 172]] }),
-    text(690, 186, "ownerReferences\n(controller: true)", { size: 15, color: MUTED }),
+    curve([[480, -10], [485, 300], [478, 620]], { color: MUTED, head: false, dashed: true, strokeWidth: 1 }),
 
-    box("gc", 990, 60, 180, 90, "garbage\ncollector", C.gray),
-    text(725, 62, "kubectl delete\npet smaug", { size: 16 }),
-    arrow("gc", "bottom", "scm", "right", { color: C.red.stroke, fromOffset: 40, via: [[1120, 285]] }),
-    arrow("gc", "bottom", "spod", "bottom", { color: C.red.stroke, fromOffset: 70, via: [[1150, 360], [635, 360]] }),
-    text(955, 165, "owner gone:\ndelete dependents", { size: 15, color: C.red.stroke }),
+    // Right: the operator's children are garbage-collected
+    text(850, 0, "pet-operator", { size: 32, align: "center" }),
+    ...doc("smaug", 560, 110, 200, 110, "Pet smaug", "species: dragon", { size: 16 }),
+    ...cross(570, 120, 180, 90),
+    text(660, 70, "kubectl delete pet smaug", { size: 17, align: "center", color: MUTED }),
+    ...block("spod", 560, 330, 170, 100, "Pod\nsmaug", { size: 22 }),
+    ...doc("scm", 780, 320, 200, 120, "ConfigMap", "smaug-card", { size: 16, titleSize: 20 }),
+    curve([[640, 308], [630, 268], [640, 226]], { color: SALMON, dashed: true }),
+    curve([[870, 318], [860, 250], [765, 205]], { color: SALMON, dashed: true }),
+    text(672, 262, "ownerReferences", { size: 18, color: SALMON }),
+
+    ...bin("gc", 1080, 110, 100, 120, "garbage collector"),
+    curve([[1070, 205], [1010, 290], [982, 360]], { color: RED }),
+    curve([[1130, 280], [1100, 520], [700, 520], [650, 434]], { color: RED }),
+    text(860, 548, "owner gone? delete its dependents", { size: 19, color: RED }),
   ],
 };
