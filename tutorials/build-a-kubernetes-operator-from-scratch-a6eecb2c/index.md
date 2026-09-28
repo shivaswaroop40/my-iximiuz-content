@@ -40,7 +40,7 @@ tasks:
     timeout_seconds: 900
     run: |
       set -euo pipefail
-      if ! /usr/local/go/bin/go version 2>/dev/null | grep -q 'go1\.26'; then
+      if ! /usr/local/go/bin/go version 2>/dev/null | grep -qw 'go1\.26\.8'; then
         case "$(uname -m)" in
           x86_64) arch=amd64 ;;
           aarch64|arm64) arch=arm64 ;;
@@ -66,7 +66,6 @@ tasks:
       done
       kubectl get --raw /readyz >/dev/null
       kubectl get namespace zoo >/dev/null 2>&1 || kubectl create namespace zoo
-      mkdir -p "$HOME/pet-operator/config"
 
   verify_crd_minimal:
     machine: dev-machine
@@ -74,7 +73,13 @@ tasks:
     run: |
       [ "$(kubectl get crd pets.zoo.example.com -o jsonpath='{.status.conditions[?(@.type=="Established")].status}' 2>/dev/null)" = "True" ] || exit 1
       kubectl get pets -n zoo mochi >/dev/null 2>&1
-
+    hintcheck: |
+      if ! kubectl get crd pets.zoo.example.com >/dev/null 2>&1; then
+        echo "The pets.zoo.example.com CRD doesn't exist yet. Apply ~/pet-operator/config/crd-minimal.yaml."
+      elif ! kubectl get pet -n zoo mochi >/dev/null 2>&1; then
+        echo "The CRD is there, but the mochi Pet isn't. Create it in the zoo namespace."
+      fi
+      exit 0
   verify_crd_full:
     machine: dev-machine
     user: laborant
@@ -91,7 +96,11 @@ tasks:
       try '{"species":"dragon","diet":{"feedEvery":"15m"}}' >/dev/null && exit 1
       try '{"species":"cat","diet":{"feedEvery":"whenever"}}' >/dev/null && exit 1
       [ -n "$(kubectl get crd pets.zoo.example.com -o jsonpath='{.spec.versions[0].subresources.status}')" ]
-
+    hintcheck: |
+      if [ -z "$(kubectl get crd pets.zoo.example.com -o jsonpath='{.spec.versions[0].subresources.status}' 2>/dev/null)" ]; then
+        echo "The API server still uses the minimal CRD. Apply ~/pet-operator/config/crd-by-hand.yaml."
+      fi
+      exit 0
   verify_naive_controller:
     machine: dev-machine
     user: laborant
@@ -99,7 +108,9 @@ tasks:
     - verify_crd_full
     run: |
       kubectl get pod -n zoo mochi >/dev/null 2>&1
-
+    hintcheck: |
+      echo "There's no mochi Pod yet. Is ~/pet-operator/bash/naive-controller.sh running in the second terminal tab?"
+      exit 0
   verify_operator_adopted:
     machine: dev-machine
     user: laborant
@@ -111,7 +122,20 @@ tasks:
       [ -n "$(kubectl get pet -n zoo mochi -o jsonpath='{.status.mood}' 2>/dev/null)" ] || exit 1
       gen=$(kubectl get pet -n zoo mochi -o jsonpath='{.metadata.generation}')
       [ "$(kubectl get pet -n zoo mochi -o jsonpath='{.status.observedGeneration}')" = "$gen" ]
-
+    hintcheck: |
+      reason=$(kubectl get pet -n zoo mochi -o jsonpath='{.status.conditions[?(@.type=="AtHome")].reason}' 2>/dev/null)
+      if [ "$reason" = "PodNameTaken" ]; then
+        echo "A mochi Pod that the Pet doesn't own is in the way, probably left over from the bash controller."
+        echo "Delete it with 'kubectl delete pod -n zoo mochi', and the operator moves mochi in within 10 seconds."
+      elif [ -z "$(kubectl get crd pets.zoo.example.com -o jsonpath='{.spec.versions[0].schema.openAPIV3Schema.properties.status.properties.observedGeneration}' 2>/dev/null)" ]; then
+        echo "The API server still uses the hand-written CRD, so it drops status.observedGeneration."
+        echo "Apply the generated one: kubectl apply -f ~/pet-operator/config/zoo.example.com_pets.yaml"
+      elif [ -z "$(kubectl get pet -n zoo mochi -o jsonpath='{.status.mood}' 2>/dev/null)" ]; then
+        echo "mochi has no status yet. Is the operator running? Start it with ./pet-operator in ~/pet-operator."
+      elif [ "$(kubectl get pet -n zoo mochi -o jsonpath='{.status.mood}')" = "RanAway" ]; then
+        echo "mochi ran away before the operator could move it in. Feed it: feed mochi"
+      fi
+      exit 0
   verify_ran_away:
     machine: dev-machine
     user: laborant
@@ -122,7 +146,15 @@ tasks:
       # The Pod is gone, or on its way out.
       [ -z "$(kubectl get pod -n zoo mochi -o jsonpath='{.metadata.name}' 2>/dev/null)" ] \
         || [ -n "$(kubectl get pod -n zoo mochi -o jsonpath='{.metadata.deletionTimestamp}' 2>/dev/null)" ]
-
+    hintcheck: |
+      every=$(kubectl get pet -n zoo mochi -o jsonpath='{.spec.diet.feedEvery}' 2>/dev/null)
+      mood=$(kubectl get pet -n zoo mochi -o jsonpath='{.status.mood}' 2>/dev/null)
+      if [ "$every" != "1m" ]; then
+        echo "mochi's feedEvery is '$every'. Set it to 1m, feed mochi, and wait about 3 minutes."
+      else
+        echo "mochi is $mood. Keep waiting: it runs away 3 minutes after its last feeding. Is the operator still running?"
+      fi
+      exit 0
   verify_came_home:
     machine: dev-machine
     user: laborant
@@ -132,7 +164,9 @@ tasks:
       [ "$(kubectl get pet -n zoo mochi -o jsonpath='{.status.mood}' 2>/dev/null)" = "Happy" ] || exit 1
       [ "$(kubectl get pod -n zoo mochi -o jsonpath='{.metadata.ownerReferences[?(@.controller==true)].kind}' 2>/dev/null)" = "Pet" ] || exit 1
       [ -z "$(kubectl get pod -n zoo mochi -o jsonpath='{.metadata.deletionTimestamp}' 2>/dev/null)" ]
-
+    hintcheck: |
+      echo "mochi is $(kubectl get pet -n zoo mochi -o jsonpath='{.status.mood}' 2>/dev/null). Feed it to bring it home: feed mochi"
+      exit 0
   verify_second_pet:
     machine: dev-machine
     user: laborant
@@ -141,7 +175,13 @@ tasks:
     run: |
       [ "$(kubectl get pod -n zoo smaug -o jsonpath='{.metadata.ownerReferences[?(@.controller==true)].name}' 2>/dev/null)" = "smaug" ] || exit 1
       [ "$(kubectl get configmap -n zoo smaug-card -o jsonpath='{.metadata.ownerReferences[?(@.controller==true)].name}' 2>/dev/null)" = "smaug" ]
-
+    hintcheck: |
+      if ! kubectl get pet -n zoo smaug >/dev/null 2>&1; then
+        echo "There's no smaug Pet. Create it (again) and wait for this checkpoint before you delete it."
+      else
+        echo "smaug exists, but its Pod or card isn't there yet. Is the operator running?"
+      fi
+      exit 0
   verify_garbage_collected:
     machine: dev-machine
     user: laborant
@@ -153,6 +193,11 @@ tasks:
       ! kubectl get configmap -n zoo smaug-card >/dev/null 2>&1 || exit 1
       [ -z "$(kubectl get pod -n zoo smaug -o jsonpath='{.metadata.name}' 2>/dev/null)" ] \
         || [ -n "$(kubectl get pod -n zoo smaug -o jsonpath='{.metadata.deletionTimestamp}' 2>/dev/null)" ]
+    hintcheck: |
+      if kubectl get pet -n zoo smaug >/dev/null 2>&1; then
+        echo "smaug is still here. Delete it: kubectl delete pet -n zoo smaug"
+      fi
+      exit 0
 ---
 
 Welcome wanderer!
@@ -312,10 +357,11 @@ Waiting for the CRD and the first Pet...
 The API server stores the `mochi` Pet, just like it stores Pods or ConfigMaps.
 ::
 
-Next, try a Pet that makes no sense:
+Next, try a Pet that makes no sense.
+We'll use a server-side dry run, so the API server checks the Pet but doesn't store it:
 
 ```sh
-kubectl apply -f - <<'EOF'
+kubectl apply --dry-run=server -f - <<'EOF'
 apiVersion: zoo.example.com/v1alpha1
 kind: Pet
 metadata:
@@ -329,11 +375,11 @@ EOF
 ```
 
 ```text
-pet.zoo.example.com/sparkles created
+pet.zoo.example.com/sparkles created (server dry run)
 ```
 
 The API server accepts it, because the schema allows any `spec`.
-And nothing else happens. No Pod was created for either Pet:
+And nothing else happens. There's no Pod for `mochi` either:
 
 ```sh
 kubectl get pods -n zoo
@@ -344,11 +390,7 @@ No resources found in zoo namespace.
 ```
 
 It's important to know that a CRD on its own only stores objects. The controller is what acts on them, and we'll write one soon.
-But first, let's make the API strict:
-
-```sh
-kubectl delete pet -n zoo sparkles
-```
+But first, let's make the API strict.
 
 ### Adding validation, defaults, and a status
 
@@ -481,6 +523,7 @@ The loop fits in a few lines of bash, in `~/pet-operator/bash/naive-controller.s
 Every 5 seconds, it goes through all Pets and creates a Pod for each Pet that doesn't have one yet:
 
 ```bash [~/pet-operator/bash/naive-controller.sh]
+while true; do
   for pet in $(kubectl get pets -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{" "}{end}'); do
     ns=${pet%/*}; name=${pet#*/}
     species=$(kubectl get pet -n "$ns" "$name" -o jsonpath='{.spec.species}')
@@ -490,6 +533,8 @@ Every 5 seconds, it goes through all Pets and creates a Pod for each Pet that do
         sh -c "while true; do echo \"I am $name the $species\"; sleep 10; done"
     fi
   done
+  sleep 5
+done
 ```
 
 Open a second terminal tab (the **+** button next to the terminal tabs) and start the script there:
@@ -872,7 +917,7 @@ And finally, the part that makes the pets get hungry:
 	return ctrl.Result{RequeueAfter: wake}, nil
 ```
 
-`RequeueAfter` tells controller-runtime to call `Reconcile` again after the given delay, which is the time left until the mood changes.
+`RequeueAfter` tells controller-runtime to call `Reconcile` again after the given delay: one second after the mood is due to change.
 The controller doesn't poll, and your code doesn't manage any timers. The work queue handles that.
 
 At the bottom of the file, `SetupWithManager` decides what the controller watches:
@@ -894,7 +939,7 @@ func (r *PetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 ### Starting the manager
 
-`main.go` creates a **manager** and registers the controller with it:
+`main.go` creates a **manager**:
 
 ```go [~/pet-operator/main.go]
 	// The manager owns the shared informer cache, the clients, and the controllers' lifecycle.
@@ -904,6 +949,19 @@ func (r *PetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create manager")
+		os.Exit(1)
+	}
+```
+
+And then registers our controller with it:
+
+```go [~/pet-operator/main.go]
+	if err := (&controller.PetReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorder("pet-operator"),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to set up controller")
 		os.Exit(1)
 	}
 ```
@@ -925,6 +983,19 @@ go build -o pet-operator . && ./pet-operator
 
 The first build takes a couple of minutes, because it compiles client-go and controller-runtime.
 Keep the operator running, and use the other terminal tab from now on.
+
+::details-box
+---
+:summary: What does "the object has been modified; please apply your changes to the latest version" mean?
+---
+You'll probably see this `Reconciler error` in the operator logs soon after mochi moves in.
+Don't worry, it's expected.
+The controller tried to update an object that changed after it read it, so the API server rejected the update.
+This is called **optimistic concurrency**.
+controller-runtime puts the Pet back in the queue with a backoff, and a later reconcile reads the new version and succeeds.
+Don't retry the update with the same object you already read.
+::
+
 
 A pet gets hungry when `feedEvery` (10 minutes by default) has passed since its last feeding.
 If it was never fed, the timer starts when it's created. After three times `feedEvery`, it runs away.
@@ -1054,7 +1125,7 @@ mochi   cat       💨      RanAway   yarn   3m1s       4m20s
 ```
 
 Nobody changed the Pet's spec during those three minutes.
-Each reconcile returned a `RequeueAfter` equal to the time left until the next mood change, so controller-runtime called `Reconcile` again when the mood was due to change.
+Each reconcile returned a `RequeueAfter` that ends one second after the next mood change, so controller-runtime called `Reconcile` again right when the mood was due to change.
 
 ::image-box
 ---
@@ -1075,12 +1146,11 @@ Waiting for mochi to get hungry and run away (about 3 minutes)...
 Your pet `mochi` ran away. Nobody changed the Pet's spec, but the controller still noticed, because it scheduled its own next reconcile.
 ::
 
-Check the events that the operator recorded, and then feed `mochi` to bring it back:
+Wait for the checkpoint above to turn green before you feed `mochi`, or it might not notice that mochi was gone.
+Meanwhile, check the events that the operator recorded:
 
 ```sh
 kubectl describe pet -n zoo mochi | tail -n 8
-feed mochi
-kubectl get pets,pods -n zoo
 ```
 
 ```text
@@ -1092,6 +1162,16 @@ Events:
   ----     ------   ----   ----          -------
   Normal   MovedIn  3m28s  pet-operator  mochi moved into Pod mochi
   Warning  RanAway  19s    pet-operator  mochi got too hungry and ran away
+```
+
+Once the checkpoint is green, feed `mochi` to bring it back:
+
+```sh
+feed mochi
+kubectl get pets,pods -n zoo
+```
+
+```text
 pet.zoo.example.com/mochi patched
 NAME                        SPECIES   FACE   MOOD    TOY    LAST FED   AGE
 pet.zoo.example.com/mochi   cat       😺      Happy   yarn   5s         4m44s
@@ -1187,15 +1267,15 @@ generation=10 observedGeneration=10
 
 ### Restarting the operator
 
-Stop the operator with `Ctrl+C`.
-While it's stopped, change the spec:
+Stop the operator with `Ctrl+C` in its tab.
+While it's stopped, change the spec in the other tab:
 
 ```sh
 kubectl patch pet -n zoo mochi --type=merge -p '{"spec":{"toy":"cardboard box"}}'
 kubectl get configmap -n zoo mochi-card -o jsonpath='{.data.card}'   # still the laser pointer
 ```
 
-Start the operator again with `./pet-operator`, and check the card once more:
+Start the operator again in its tab with `./pet-operator`, and check the card once more in the other tab:
 
 ```sh
 kubectl get configmap -n zoo mochi-card -o jsonpath='{.data.card}'
@@ -1212,18 +1292,6 @@ playing with: cardboard box
 
 On startup, the cache LISTs all Pets, and the controller reconciles each of them.
 The controller doesn't need to see every event, only the current state, so the change it missed while it was stopped doesn't matter.
-
-::details-box
----
-:summary: What does "the object has been modified; please apply your changes to the latest version" mean?
----
-Sooner or later, you'll see this `Reconciler error` in the operator logs.
-Don't worry, it's expected.
-The controller tried to update an object that changed after it read it, so the API server rejected the update.
-This is called **optimistic concurrency**.
-controller-runtime puts the Pet back in the queue with a backoff, and a later reconcile reads the new version and succeeds.
-Don't retry the update with the same object you already read.
-::
 
 ### Deleting a Pet
 
@@ -1325,6 +1393,7 @@ If something doesn't behave the way you expect:
 - If `go build` fails with missing packages, run `go mod tidy` in `~/pet-operator` again.
 - If `mochi` never gets a Pod, check its conditions with `kubectl describe pet -n zoo mochi`. `PodNameTaken` means a Pod from the bash controller is still there. Delete it, and the operator moves `mochi` in within 10 seconds.
 - If a Pod is stuck in `Pending` or `ContainerCreating`, check `kubectl get events -n zoo`. The Pod needs to pull the `busybox:1.37` image, and the cluster needs a working networking plugin.
+- If the first checkpoint doesn't turn green and `kubectl get pet -n zoo mochi -o jsonpath='{.status.observedGeneration}'` is empty, the API server still uses the hand-written CRD, which drops that field. Apply `config/zoo.example.com_pets.yaml`.
 - If a change doesn't show up, check the operator logs. Every card update is logged, and so is every failed reconcile.
 - If the card in the Pod logs looks out of date, give the kubelet a minute or two to refresh the mounted ConfigMap. `kubectl get configmap -n zoo mochi-card -o jsonpath='{.data.card}'` shows the current card right away.
 

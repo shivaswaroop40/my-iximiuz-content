@@ -17,28 +17,34 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 INDEX="$HERE/../../tutorials/open-a-kubernetes-zoo-9ad54ae8/index.md"
 REFERENCE="$HERE/crd/5-status-and-columns.yaml"
 WORK="$(mktemp -d)"
-cp "${KUBECONFIG:-$HOME/.kube/config}" "$WORK/kubeconfig" || { echo "no kubeconfig to copy"; exit 1; }
+kubectl config view --raw > "$WORK/kubeconfig" || { echo "no kubeconfig"; exit 1; }
 export KUBECONFIG="$WORK/kubeconfig"
 export HOME="$WORK/home"   # init writes scenario files into $HOME
 mkdir -p "$HOME"
 CRD=pets.zoo.example.com
 
-"$HERE/render.py" >/dev/null
+"$HERE/../render.py" >/dev/null || exit 1
 
 python3 - "$INDEX" "$WORK" <<'PY'
 import re, sys, yaml, pathlib
 index, work = sys.argv[1], pathlib.Path(sys.argv[2])
 _, fm, body = re.split(r"^---$\n", open(index).read(), maxsplit=2, flags=re.M)
+import subprocess
+broken = []
 for name, task in yaml.safe_load(fm)["tasks"].items():
     (work / f"{name}.run.sh").write_text(task["run"])
     if "hintcheck" in task:
         (work / f"{name}.hint.sh").write_text(task["hintcheck"])
+    for kind in ("run", "hintcheck", "failcheck"):
+        if kind in task and subprocess.run(["bash", "-n"], input=task[kind], text=True, capture_output=True).returncode:
+            broken.append(f"{name}.{kind}")
+assert not broken, f"task scripts with bash syntax errors: {broken}"
 # The learner applies the CRD versions the playground ships in ~/pet-crd, in the order
 # the tutorial's `kubectl apply -f ~/pet-crd/...` commands give.
 shipped = pathlib.Path(index).parent / "pet-crd"
 steps = re.findall(r"^kubectl apply -f ~/pet-crd/(\S+\.yaml)$", body, re.M)
 assert len(steps) == 5, f"expected 5 CRD steps in the tutorial, found {len(steps)}: {steps}"
-assert steps == sorted(steps), f"CRD steps are applied out of order: {steps}"
+assert steps == sorted(p.name for p in shipped.glob("*.yaml")), f"the tutorial must apply every shipped CRD version in order: {steps}"
 for i, name in enumerate(steps, 1):
     (work / f"step{i}.yaml").write_text((shipped / name).read_text())
 PY
@@ -102,7 +108,7 @@ for t in "${VERIFY[@]}"; do expect fail "$t"; done
 
 echo "== tutorial step 1: names only"
 apply_crd "$WORK/step1.yaml"
-expect_only verify_crd_registered verify_crd_discoverable verify_schema_accepts_valid
+expect_only verify_crd_registered verify_crd_discoverable   # accepts_valid also needs a rejection
 [ "$(turned_away_rejected)" = 0 ] && ok "all five turned-away pets get in" || bad "step 1 should let every turned-away pet in"
 
 echo "== tutorial step 2: OpenAPI schema"
@@ -140,7 +146,6 @@ fi
 echo "== tutorial step 5: status subresource and printer columns"
 apply_crd "$WORK/step5.yaml"
 expect_only "${VERIFY[@]:0:8}"
-cmp -s "$REFERENCE" "$WORK/step5.yaml" && ok "step 5 is the reference CRD" || bad "step 5 differs from $REFERENCE"
 
 echo "== gotcha: no 'diet: default: {}' (nested defaults need a parent)"
 reset

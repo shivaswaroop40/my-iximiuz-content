@@ -274,6 +274,9 @@ tasks:
         '{"species":"cat","diet":{"feedEvery":"1s"}}'
       )
       for spec in "${GOOD[@]}"; do try "$spec" || exit 1; done
+      # A schema-less CRD accepts everything, so also require one rejection.
+      try '{"species":"cat","toy":42}' && exit 1
+      exit 0
     hintcheck: |
       try() {
         printf '{"apiVersion":"zoo.example.com/v1alpha1","kind":"Pet","metadata":{"generateName":"verify-","namespace":"default"},"spec":%s}' "$1" \
@@ -290,6 +293,10 @@ tasks:
         '{"species":"cactus","diet":{"feedEvery":"8760h"}}'
         '{"species":"cat","diet":{"feedEvery":"1s"}}'
       )
+      if [ -z "$(try '{"species":"cat","toy":42}')" ]; then
+        echo "The API server still accepts anything, even a toy that is a number. Apply ~/pet-crd/2-schema.yaml to give Pets a schema."
+        exit 0
+      fi
       for spec in "${GOOD[@]}"; do
         if err=$(try "$spec") && [ -z "$err" ]; then continue; fi
         echo "A valid Pet was turned away. spec: $spec"
@@ -347,7 +354,7 @@ tasks:
         'spec.lastFedAt is "yesterday"|{"species":"cat","lastFedAt":"yesterday"}'
         'spec.diet.feedEvery is "0s" (not a valid feeding interval)|{"species":"cat","diet":{"feedEvery":"0s"}}'
         'spec.diet.feedEvery is "8761h", just over a year|{"species":"cat","diet":{"feedEvery":"8761h"}}'
-        'spec.diet.feedEvery is "9999999h", more than Go's time.Duration can hold|{"species":"cat","diet":{"feedEvery":"9999999h"}}'
+        'spec.diet.feedEvery is "9999999h", too big for a Go time.Duration|{"species":"cat","diet":{"feedEvery":"9999999h"}}'
         'spec.diet.feedEvery is "00000000001h", 12 characters long|{"species":"cat","diet":{"feedEvery":"00000000001h"}}'
       )
       for c in "${BAD[@]}"; do

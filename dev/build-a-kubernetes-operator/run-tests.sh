@@ -1,29 +1,30 @@
 #!/usr/bin/env bash
 # End-to-end test of the operator tutorial against the current kubectl context.
 #
-# The project the playground ships at startup (the tutorial's pet-operator/ folder, packed
-# into __static__/pet-operator.tar.gz by labctl) is copied to ~/pet-operator, and every file
-# the learner is told to write (`cat > PATH <<'EOF'` blocks) is taken from the *rendered*
-# tutorial, so this proves the published code builds and works.
-# The tutorial's checkpoint tasks come from its front matter and are asserted
-# along the way.
+# What it tests, and what it doesn't:
+# - The project the playground ships at startup (the tutorial's pet-operator/ folder, packed
+#   into __static__/pet-operator.tar.gz by labctl) is copied to ~/pet-operator, built with
+#   controller-gen and go, and run. That is the code the learner gets.
+# - crd-minimal.yaml and the feed() helper are taken from the *rendered* tutorial.
+# - Every other command this script runs must appear verbatim in the rendered tutorial.
+# - The Go excerpts on the page are not compiled on their own; dev/render.py cuts them
+#   from the same files, and fails if an anchor stops matching exactly one line.
+# - Every task script (run and hintcheck) must pass `bash -n`, and the checkpoint tasks
+#   are asserted along the way.
 #
-# Needs: go (any version that can fetch the go1.26 toolchain), kubectl, and a
-# disposable cluster running kube-apiserver, etcd and kube-controller-manager
-# with the garbage collector and serviceaccount controllers. No kubelet or
-# scheduler is needed: the Pods stay Pending, which is fine for everything the
-# tutorial checks. The hunger timeline uses feedEvery: 3s instead of the
+# Needs: go (any version that can fetch the go1.26 toolchain), kubectl, and a disposable
+# cluster with a kubelet, like kind. The hunger timeline uses feedEvery: 3s instead of the
 # tutorial's 1m to keep the run short.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TUTORIAL="$HERE/../../tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c/index.md"
 WORK="$(mktemp -d)"
+kubectl config view --raw > "$WORK/kubeconfig" || { echo "no kubeconfig"; exit 1; }
+export KUBECONFIG="$WORK/kubeconfig"
+export GOPATH="${GOPATH:-$(go env GOPATH)}" GOMODCACHE="${GOMODCACHE:-$(go env GOMODCACHE)}" GOCACHE="${GOCACHE:-$(go env GOCACHE)}"
 export HOME="$WORK/home"
 mkdir -p "$HOME"
-cp "${KUBECONFIG:-/root/.kube/config}" "$WORK/kubeconfig"
-export KUBECONFIG="$WORK/kubeconfig"
-export GOPATH="${GOPATH:-/root/go}" GOMODCACHE="${GOMODCACHE:-/root/go/pkg/mod}" GOCACHE="${GOCACHE:-/root/.cache/go-build}"
 export GOTOOLCHAIN="${GOTOOLCHAIN:-go1.26.8}"
 export PATH="$PATH:/usr/local/go/bin:$GOPATH/bin"
 N=zoo
@@ -31,15 +32,24 @@ FAILURES=0
 OP_PID=""
 NAIVE_PID=""
 
-"$HERE/render.py" >/dev/null
+"$HERE/../render.py" >/dev/null || exit 1
 
 python3 - "$TUTORIAL" "$WORK" <<'PY'
 import sys, re, yaml, pathlib
 text = open(sys.argv[1]).read()
 work = pathlib.Path(sys.argv[2])
 _, fm, body = re.split(r"^---$\n", text, maxsplit=2, flags=re.M)
+import subprocess
+broken = []
 for name, task in yaml.safe_load(fm)["tasks"].items():
     (work / f"{name}.sh").write_text(task["run"])
+    for kind in ("run", "hintcheck", "failcheck"):
+        if kind in task and subprocess.run(["bash", "-n"], input=task[kind], text=True, capture_output=True).returncode:
+            broken.append(f"{name}.{kind}")
+assert not broken, f"task scripts with bash syntax errors: {broken}"
+feed = re.findall(r"^grep -q '\^feed\(\)' ~/.bashrc \|\| cat >> ~/.bashrc <<'EOF'\n(.*?)\nEOF$", body, re.S | re.M)
+assert len(feed) == 1, "the tutorial's feed() helper block not found"
+(work / "feed.sh").write_text(feed[0] + "\n")
 files = re.findall(r"^cat > (\S+) <<'EOF'\n(.*?)\nEOF$", body, re.S | re.M)
 (work / "files").mkdir(exist_ok=True)
 for i, (path, content) in enumerate(files, 1):
@@ -49,10 +59,24 @@ PY
 
 # The playground's startupFiles unpack the shipped project here before the learner logs in.
 cp -R "$(dirname "$TUTORIAL")/pet-operator" "$HOME/pet-operator"
-for cmd in "kubectl apply -f ~/pet-operator/config/crd-by-hand.yaml" "bash ~/pet-operator/bash/naive-controller.sh" \
-           "go mod download"; do
-  grep -qxF "$cmd" "$TUTORIAL" || { echo "tutorial no longer runs: $cmd"; exit 1; }
-done
+cmp -s "$HOME/pet-operator/config/crd-by-hand.yaml" "$HERE/../open-a-kubernetes-zoo/crd/5-status-and-columns.yaml" \
+  || { echo "the shipped crd-by-hand.yaml is not zoo step 5; run dev/render.py"; exit 1; }
+# Commands this script runs on the learner's behalf: each must still be in the tutorial, verbatim.
+while IFS= read -r cmd; do
+  grep -qxF -- "$cmd" "$TUTORIAL" || { echo "tutorial no longer runs: $cmd"; exit 1; }
+done <<'CMDS'
+kubectl apply -f ~/pet-operator/config/crd-minimal.yaml
+kubectl apply -f ~/pet-operator/config/crd-by-hand.yaml
+bash ~/pet-operator/bash/naive-controller.sh
+export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin
+go mod download
+go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.22.0
+controller-gen object paths=./api/...
+controller-gen crd paths=./api/... output:crd:dir=config
+kubectl apply -f config/zoo.example.com_pets.yaml
+go mod tidy
+go build -o pet-operator . && ./pet-operator
+CMDS
 
 # write_file <path as written in the tutorial>: materialize that heredoc from the tutorial.
 write_file() {
@@ -98,7 +122,10 @@ assert() { # assert <description> <command...>: retried for up to 15s
 jp() { kubectl get -n $N "$1" "$2" -o jsonpath="$3" 2>/dev/null; }   # jp <kind> <name> <jsonpath>
 is() { [ "$(jp "$1" "$2" "$3")" = "$4" ]; }                         # is <kind> <name> <jsonpath> <value>
 has() { jp "$1" "$2" "$3" | grep -qF -- "$4"; }                     # has <kind> <name> <jsonpath> <substring>
-feed() { kubectl patch pet "$1" -n $N --type=merge -p "{\"spec\":{\"lastFedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" >/dev/null; }
+# The tutorial's own feed() helper, quietened.
+source "$WORK/feed.sh"
+eval "tutorial_$(declare -f feed)"
+feed() { tutorial_feed "$@" >/dev/null; }
 
 start_operator() {
   (cd "$HOME/pet-operator" && exec ./pet-operator >>"$WORK/operator.log" 2>&1) &
