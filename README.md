@@ -43,7 +43,12 @@ dev/open-a-kubernetes-zoo/run-tests.sh          # zoo tutorial: each CRD step pa
 dev/build-a-kubernetes-operator/run-tests.sh    # tutorial: builds the code *from the tutorial* and walks every step
 ```
 
-Both tutorials are rendered from a `tutorial.template.md` in their `dev/` folder, which pulls code blocks
-from the tested files next to it: the CRD steps in `dev/open-a-kubernetes-zoo/crd/` and the operator project in
-`dev/build-a-kubernetes-operator/pet-operator/`. Edit the template or the files, then run that folder's `render.py`.
-The finished zoo CRD (`crd/5-status-and-columns.yaml`) is also Part 1 of the operator tutorial.
+Both tutorials are rendered from a `tutorial.template.md` in their `dev/` folder. The tutorials show only
+excerpts of the code (`{{excerpt:path#from=RE#to=RE}}`), cut from the tested files next to the template:
+the CRD versions in `dev/open-a-kubernetes-zoo/crd/` and the operator project in
+`dev/build-a-kubernetes-operator/pet-operator/`. The full files ship to the playground at startup:
+`render.py` copies them into `tutorials/<slug>/pet-crd/` and `tutorials/<slug>/pet-operator/`, and
+`labctl content push` packs those folders into `__static__/*.tar.gz`, which the `startupFiles` in the front
+matter unpack into the learner's home directory (`.labctlignore` keeps the folders themselves out of the push).
+Edit the template or the files, then run that folder's `render.py`.
+The finished zoo CRD (`crd/5-status-and-columns.yaml`) is also `config/crd-by-hand.yaml` in the operator project.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Walks the zoo tutorial against whatever cluster the current kubectl context points at,
-# using the tutorial's own task scripts and the CRD blocks from the *rendered* tutorial:
+# using the tutorial's own task scripts and the CRD files the playground ships (pet-crd/):
 #
 #   1. init             -> scenario files + zoo namespace
 #   2. no CRD           -> every verify task must FAIL
@@ -33,10 +33,14 @@ for name, task in yaml.safe_load(fm)["tasks"].items():
     (work / f"{name}.run.sh").write_text(task["run"])
     if "hintcheck" in task:
         (work / f"{name}.hint.sh").write_text(task["hintcheck"])
-steps = re.findall(r"^cat > ~/pet-crd.yaml <<'EOF'\n(.*?)\nEOF$", body, re.S | re.M)
-assert len(steps) == 5, f"expected 5 CRD steps in the tutorial, found {len(steps)}"
-for i, crd in enumerate(steps, 1):
-    (work / f"step{i}.yaml").write_text(crd + "\n")
+# The learner applies the CRD versions the playground ships in ~/pet-crd, in the order
+# the tutorial's `kubectl apply -f ~/pet-crd/...` commands give.
+shipped = pathlib.Path(index).parent / "pet-crd"
+steps = re.findall(r"^kubectl apply -f ~/pet-crd/(\S+\.yaml)$", body, re.M)
+assert len(steps) == 5, f"expected 5 CRD steps in the tutorial, found {len(steps)}: {steps}"
+assert steps == sorted(steps), f"CRD steps are applied out of order: {steps}"
+for i, name in enumerate(steps, 1):
+    (work / f"step{i}.yaml").write_text((shipped / name).read_text())
 PY
 [ -f "$WORK/step5.yaml" ] || { echo "could not extract the tutorial"; exit 1; }
 
@@ -136,7 +140,7 @@ fi
 echo "== tutorial step 5: status subresource and printer columns"
 apply_crd "$WORK/step5.yaml"
 expect_only "${VERIFY[@]:0:8}"
-cmp -s <(grep -v '^#' "$REFERENCE") "$WORK/step5.yaml" && ok "step 5 is the reference CRD" || bad "step 5 differs from $REFERENCE"
+cmp -s "$REFERENCE" "$WORK/step5.yaml" && ok "step 5 is the reference CRD" || bad "step 5 differs from $REFERENCE"
 
 echo "== gotcha: no 'diet: default: {}' (nested defaults need a parent)"
 reset

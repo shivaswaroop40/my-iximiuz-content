@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # End-to-end test of the operator tutorial against the current kubectl context.
 #
-# Every file the learner is told to write (`cat > PATH <<'EOF'` blocks) is taken
-# from the *rendered* tutorial, so this proves the published code builds and works.
+# The project the playground ships at startup (the tutorial's pet-operator/ folder, packed
+# into __static__/pet-operator.tar.gz by labctl) is copied to ~/pet-operator, and every file
+# the learner is told to write (`cat > PATH <<'EOF'` blocks) is taken from the *rendered*
+# tutorial, so this proves the published code builds and works.
 # The tutorial's checkpoint tasks come from its front matter and are asserted
 # along the way.
 #
@@ -44,6 +46,13 @@ for i, (path, content) in enumerate(files, 1):
     (work / "files" / str(i)).write_text(content + "\n")
 (work / "files.txt").write_text("\n".join(p for p, _ in files) + "\n")
 PY
+
+# The playground's startupFiles unpack the shipped project here before the learner logs in.
+cp -R "$(dirname "$TUTORIAL")/pet-operator" "$HOME/pet-operator"
+for cmd in "kubectl apply -f ~/pet-operator/config/crd-by-hand.yaml" "bash ~/pet-operator/bash/naive-controller.sh" \
+           "go mod download"; do
+  grep -qxF "$cmd" "$TUTORIAL" || { echo "tutorial no longer runs: $cmd"; exit 1; }
+done
 
 # write_file <path as written in the tutorial>: materialize that heredoc from the tutorial.
 write_file() {
@@ -134,7 +143,6 @@ spec: {species: unicorn, toy: 42, favoriteColor: rainbow}
 EOF"
 
 echo "== part 1: full CRD by hand"
-write_file "~/pet-operator/config/crd-by-hand.yaml"
 kubectl apply -f "$HOME/pet-operator/config/crd-by-hand.yaml" >/dev/null; sleep 2
 check pass verify_crd_full
 assert "dragon without a diet is rejected (default, then CEL)" bash -c "! echo '{\"apiVersion\":\"zoo.example.com/v1alpha1\",\"kind\":\"Pet\",\"metadata\":{\"name\":\"nope\",\"namespace\":\"zoo\"},\"spec\":{\"species\":\"dragon\"}}' | kubectl apply --dry-run=server -f -"
@@ -144,9 +152,7 @@ done
 assert "mochi got the default diet" is pet mochi '{.spec.diet.food}/{.spec.diet.feedEvery}' 'snacks/10m'
 
 echo "== part 2: naive bash controller"
-write_file "~/naive-controller.sh"
-chmod +x "$HOME/naive-controller.sh"
-"$HOME/naive-controller.sh" >"$WORK/naive.log" 2>&1 &
+bash "$HOME/pet-operator/bash/naive-controller.sh" >"$WORK/naive.log" 2>&1 &
 NAIVE_PID=$!
 check pass verify_naive_controller
 uid=$(jp pod mochi '{.metadata.uid}')
@@ -167,16 +173,10 @@ assert "goldie's Pod is orphaned" kubectl get pod -n $N goldie
 stop_naive
 kubectl delete pods -n $N --all --grace-period=1 >/dev/null
 
-echo "== part 3: build the operator from the tutorial's code"
+echo "== part 3: build the operator the playground ships"
 cd "$HOME/pet-operator"
-go mod init example.com/pet-operator >/dev/null 2>&1
-go get sigs.k8s.io/controller-runtime@v0.25.1 >/dev/null 2>&1
+go mod download
 GOBIN="$GOPATH/bin" go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.22.0
-mkdir -p api/v1alpha1 internal/controller
-write_file "api/v1alpha1/groupversion_info.go"
-write_file "api/v1alpha1/pet_types.go"
-write_file "internal/controller/pet_controller.go"
-write_file "main.go"
 controller-gen object paths=./api/... || FAILURES=$((FAILURES + 1))
 controller-gen crd paths=./api/... output:crd:dir=config || FAILURES=$((FAILURES + 1))
 go mod tidy >/dev/null 2>&1

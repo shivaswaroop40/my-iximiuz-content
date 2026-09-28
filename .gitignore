@@ -2,3 +2,4 @@ dev/build-a-kubernetes-operator/pet-operator/pet-operator
 .DS_Store
 __pycache__/
 *.pyc
+tutorials/*/__static__/*.tar.gz
