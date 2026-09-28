@@ -19,8 +19,8 @@ Folders are named after the content's name on Labs, including its hash suffix, s
 
 ## Tutorials
 
-- [Open a Kubernetes Zoo: Design a Validated CustomResourceDefinition](tutorials/open-a-kubernetes-zoo-9ad54ae8/index.md) (draft)
-- [Build a Kubernetes Operator From Scratch: A Pet That Gets Hungry](tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c/index.md) (draft)
+- [How Kubernetes CRDs Work: Designing a Validated API From Scratch](tutorials/open-a-kubernetes-zoo-9ad54ae8/index.md) (draft)
+- [How Kubernetes Operators Work: Building a Controller From Scratch](tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c/index.md) (draft)
 
 ## Challenges
 

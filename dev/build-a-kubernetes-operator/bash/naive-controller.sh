@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# A controller in its simplest possible form: look at the desired state,
-# make the world match it, sleep, repeat. Forever.
+# A minimal controller: read the desired state, create what's missing,
+# sleep for a few seconds, and repeat.
 while true; do
   for pet in $(kubectl get pets -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{" "}{end}'); do
     ns=${pet%/*}; name=${pet#*/}
