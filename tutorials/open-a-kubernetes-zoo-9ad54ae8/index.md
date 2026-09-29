@@ -35,8 +35,9 @@ playground:
     owner: laborant
     machines: [dev-machine]
   - path: /home/laborant/pet-api.md
-    source: __static__/pet-api.md
+    source: __static__/pet-api.txt   # .txt: Labs parses any .md in __static__ as content
     owner: laborant
+    mode: "644"
     machines: [dev-machine]
 
 tasks:

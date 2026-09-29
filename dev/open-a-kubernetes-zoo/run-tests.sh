@@ -30,7 +30,7 @@ TUTORIAL_DIR="$(dirname "$INDEX")"
 while IFS= read -r f; do
   mkdir -p "$HOME/pets/$(dirname "$f")" && cp -p "$TUTORIAL_DIR/pets/$f" "$HOME/pets/$f"
 done < <("$HERE/../render.py" --archive-files "$TUTORIAL_DIR/pets")
-cp -p "$TUTORIAL_DIR/__static__/pet-api.md" "$HOME/pet-api.md"
+cp -p "$TUTORIAL_DIR/__static__/pet-api.txt" "$HOME/pet-api.md"
 
 python3 - "$INDEX" "$WORK" <<'PY'
 import re, sys, yaml, pathlib

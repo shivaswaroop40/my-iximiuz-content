@@ -37,7 +37,7 @@ OPERATOR = TUTORIALS_DIR / "build-a-kubernetes-operator-from-scratch-a6eecb2c"
 TUTORIALS = [
     # ships: folders packed into __static__/<folder>.tar.gz; static: files the startupFiles fetch as they are.
     {"template": DEV / "open-a-kubernetes-zoo" / "tutorial.template.md", "out": ZOO,
-     "ships": ["pet-crd", "pets"], "static": ["pet-api.md"]},
+     "ships": ["pet-crd", "pets"], "static": ["pet-api.txt"]},
     {"template": DEV / "build-a-kubernetes-operator" / "tutorial.template.md", "out": OPERATOR,
      "ships": ["pet-operator"], "static": []},
 ]
@@ -164,6 +164,13 @@ def render(t: dict) -> str:
         shipped = archive_files(base / ship_dir)
         if any(f.name == ".DS_Store" for f in shipped):
             fail(f"{base.name}/{ship_dir}: a .DS_Store would ship to learners; add it to {ship_dir}/.labctlignore")
+    # Rules Labs enforces on push, checked here so a push can't fail halfway.
+    import yaml
+    for i, f in enumerate(yaml.safe_load(front_matter.split("---", 1)[1]).get("playground", {}).get("startupFiles", [])):
+        if not f.get("extract") and not f.get("append") and not ("owner" in f and "mode" in f):
+            fail(f"{base.name}: startupFiles[{i}] ({f.get('path')}) needs `append`, or both `owner` and `mode`")
+    if any(p.suffix == ".md" for p in (base / "__static__").iterdir()):
+        fail(f"{base.name}: Labs parses any .md in __static__ as content and rejects it; rename it (e.g. to .txt)")
     for name in t["static"]:
         if f"source: __static__/{name}" not in front_matter or not (base / "__static__" / name).is_file():
             fail(f"{base.name}: __static__/{name} must exist and be declared as a startupFiles source")

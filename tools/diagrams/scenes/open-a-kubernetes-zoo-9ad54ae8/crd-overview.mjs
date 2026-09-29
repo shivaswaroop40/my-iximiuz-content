@@ -1,4 +1,4 @@
-import { BLUE, SALMON, RED, text, block, doc, cylinder, cloud, curve, cross } from "../_lib.mjs";
+import { BLUE, RED, text, block, doc, cylinder, curve, cross } from "../_lib.mjs";
 
 // The opening diagram of the zoo tutorial: what the reader ends up with.
 export default {
@@ -36,6 +36,5 @@ export default {
       "NAME      SPECIES  MOOD   TOY\nmochi     cat      Happy  yarn\nprickles  cactus\nrex       dog             stick\nsmaug     dragon", { titleSize: 20, size: 16 }),
     curve([[1135, 312], [1135, 350], [1125, 393]]),
 
-    ...cloud("note", 650, 685, 460, 105, "no controller and no code:\nonly YAML and kubectl", { color: SALMON }),
   ],
 };

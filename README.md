@@ -46,7 +46,7 @@ dev/build-a-kubernetes-operator/run-tests.sh    # operator tutorial: builds the 
 Each tutorial ships its files to the playground, and the shipped files next to `index.md` are the source of truth:
 
 - zoo: `pet-crd/` (the five CRD versions), `pets/` (the adopted and turned-away Pet manifests) and
-  `__static__/pet-api.md` (the spec);
+  `__static__/pet-api.txt` (the spec, unpacked as `~/pet-api.md`);
 - operator: `pet-operator/` (the Go project, the hand-written CRD and the bash controller).
 
 `labctl content push` packs each folder into `__static__/<folder>.tar.gz`, which the `startupFiles` in the

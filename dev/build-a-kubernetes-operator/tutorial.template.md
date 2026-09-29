@@ -226,6 +226,15 @@ By the end of this tutorial, you will have an operator running against your clus
 Every Pet gets a Pod to live in and gets hungry as time passes.
 If nobody feeds it for too long, the pet runs away, and the operator deletes its Pod.
 
+Here's the whole picture of what you'll end up with:
+
+::image-box
+---
+:src: __static__/operator-overview.png
+:alt: 'The Pet operator: a user writes the Pet spec, the controller watches Pets, creates a ConfigMap and a Pod for each of them, and writes the status back.'
+---
+::
+
 I picked pets for this one because hunger depends on time,
 and reacting to time passing is one of the less obvious things a controller has to handle.
 
@@ -235,13 +244,6 @@ and once we've seen where that falls short, a real controller in Go.
 You won't have to type out any long files.
 The whole project is already waiting in `~/pet-operator` on the playground.
 In the tutorial, I'll show the parts that matter and explain them, and you can open the full files in the IDE tab whenever you want the bigger picture.
-
-::image-box
----
-:src: __static__/operator-overview.png
-:alt: 'The Pet operator: a user writes the Pet spec, the controller watches Pets, creates a ConfigMap and a Pod for each of them, and writes the status back.'
----
-::
 
 ## Prerequisites
 
