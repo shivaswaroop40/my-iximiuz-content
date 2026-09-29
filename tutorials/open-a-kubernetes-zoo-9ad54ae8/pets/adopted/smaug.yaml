@@ -1,0 +1,10 @@
+apiVersion: zoo.example.com/v1alpha1
+kind: Pet
+metadata:
+  name: smaug
+  namespace: zoo
+spec:
+  species: dragon
+  diet:
+    food: sheep
+    feedEvery: 6h

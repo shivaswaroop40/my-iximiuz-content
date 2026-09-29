@@ -36,8 +36,6 @@ type PetReconciler struct {
 // Reconcile makes the world match one Pet. It is called with just a namespace/name,
 // never with "what changed", so it always starts by reading the current state.
 func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-
 	// 1. Observe: fetch the desired state.
 	var pet zoov1alpha1.Pet
 	if err := r.Get(ctx, req.NamespacedName, &pet); err != nil {
@@ -59,24 +57,27 @@ func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	mood, moodChangesAt := moodAt(now, lastFed, feedEvery)
 
 	// 2. Act: the ConfigMap holds the pet's "card", the Pod shows it.
+	// takenBy names the kind of object in the way, if someone else owns the name we need.
 	card := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: pet.Name + "-card", Namespace: pet.Namespace}}
-	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, card, func() error {
-		card.Data = map[string]string{"card": renderCard(&pet, mood)}
-		return controllerutil.SetControllerReference(&pet, card, r.Scheme)
-	})
+	takenBy, podName := "", ""
+	cardTaken, err := r.reconcileCard(ctx, &pet, card, mood)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if op != controllerutil.OperationResultNone {
-		logger.Info("card updated", "mood", mood, "operation", op)
-	}
-
-	podName, nameTaken, err := r.reconcilePod(ctx, &pet, card, mood)
-	if err != nil {
-		return ctrl.Result{}, err
+	if cardTaken {
+		takenBy = "ConfigMap"
+	} else {
+		var podTaken bool
+		if podName, podTaken, err = r.reconcilePod(ctx, &pet, card, mood); err != nil {
+			return ctrl.Result{}, err
+		}
+		if podTaken {
+			takenBy = "Pod"
+		}
 	}
 
 	// 3. Report: write what we observed to status.
+	base := pet.DeepCopy()
 	pet.Status.Mood = mood
 	pet.Status.Face = faces[pet.Spec.Species][mood]
 	pet.Status.PodName = podName
@@ -91,12 +92,19 @@ func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	if mood == RanAway {
 		home.Status, home.Message = metav1.ConditionFalse, fmt.Sprintf("%s ran away. Feed it to bring it back.", pet.Name)
 	}
-	if nameTaken {
-		home.Status, home.Reason = metav1.ConditionFalse, "PodNameTaken"
-		home.Message = fmt.Sprintf("a Pod named %s already exists and doesn't belong to this Pet. Delete it and %s moves in.", pet.Name, pet.Name)
+	if takenBy != "" {
+		name := pet.Name
+		if takenBy == "ConfigMap" {
+			name = card.Name
+		}
+		home.Status, home.Reason = metav1.ConditionFalse, takenBy+"NameTaken"
+		home.Message = fmt.Sprintf("a %s named %s already exists and doesn't belong to this Pet. Delete it and %s moves in.", takenBy, name, pet.Name)
 	}
 	meta.SetStatusCondition(&pet.Status.Conditions, home)
-	if err := r.Status().Update(ctx, &pet); err != nil {
+	// A merge patch sends only what changed. Unlike an Update, it doesn't fail when
+	// the cached Pet is a step behind the API server, which happens right after our
+	// own writes.
+	if err := r.Status().Patch(ctx, &pet, client.MergeFrom(base)); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -105,9 +113,10 @@ func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	if !moodChangesAt.IsZero() {
 		wake = moodChangesAt.Sub(now) + time.Second
 	}
-	// The cache sees every Pod, but only events on Pods we own queue a reconcile,
-	// so nothing tells us when someone else's Pod goes away. Check back soon.
-	if nameTaken && (wake == 0 || wake > 10*time.Second) {
+	// Only events on objects we own queue a reconcile, so nothing tells us when
+	// someone else's Pod or ConfigMap goes away. Check back soon, even if the pet
+	// ran away and has no mood change coming (wake == 0).
+	if takenBy != "" && (wake == 0 || wake > 10*time.Second) {
 		wake = 10 * time.Second
 	}
 	return ctrl.Result{RequeueAfter: wake}, nil
@@ -126,6 +135,27 @@ func moodAt(now, lastFed time.Time, feedEvery time.Duration) (mood string, chang
 	default:
 		return RanAway, time.Time{} // it stays gone until someone feeds it
 	}
+}
+
+// reconcileCard writes the pet's card into its ConfigMap. Like reconcilePod, it
+// never takes over an object someone else created: it reports taken instead.
+func (r *PetReconciler) reconcileCard(ctx context.Context, pet *zoov1alpha1.Pet, card *corev1.ConfigMap, mood string) (taken bool, err error) {
+	if err := r.Get(ctx, client.ObjectKeyFromObject(card), card); err == nil && !metav1.IsControlledBy(card, pet) {
+		r.Recorder.Eventf(pet, card, corev1.EventTypeWarning, "ConfigMapNameTaken", "UpdateCard", "ConfigMap %s already exists and doesn't belong to %s", card.Name, pet.Name)
+		return true, nil
+	} else if client.IgnoreNotFound(err) != nil {
+		return false, err
+	}
+
+	// CreateOrUpdate creates the ConfigMap, or updates it only if the function changed something.
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, card, func() error {
+		card.Data = map[string]string{"card": renderCard(pet, mood)}
+		return controllerutil.SetControllerReference(pet, card, r.Scheme)
+	})
+	if err == nil && op != controllerutil.OperationResultNone {
+		log.FromContext(ctx).Info("card updated", "mood", mood, "operation", op)
+	}
+	return false, err
 }
 
 // reconcilePod makes sure the pet's Pod exists, unless the pet ran away.
@@ -166,13 +196,12 @@ func (r *PetReconciler) reconcilePod(ctx context.Context, pet *zoov1alpha1.Pet, 
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pet.Name,
 			Namespace: pet.Namespace,
-			Labels:    map[string]string{"zoo.example.com/pet": pet.Name},
 		},
 		Spec: corev1.PodSpec{
 			TerminationGracePeriodSeconds: ptr.To[int64](1),
 			Containers: []corev1.Container{{
 				Name:         "pet",
-				Image:        "busybox:1.37",
+				Image:        "public.ecr.aws/docker/library/busybox:1.37",
 				Command:      []string{"sh", "-c", `while true; do echo "--- $(date +%T)"; cat /pet/card; sleep 10; done`},
 				VolumeMounts: []corev1.VolumeMount{{Name: "card", MountPath: "/pet"}},
 			}},

@@ -9,7 +9,7 @@ Source for my [iximiuz Labs](https://labs.iximiuz.com/a/shiva-swaroop) content.
 | `challenges/<slug>/solution.md` | Reference solution write-up |
 | `challenges/<slug>/.solution.sh` | Scripted solution for automated end-to-end runs |
 | `challenges/<slug>/__static__/` | Cover and other static assets |
-| `dev/<slug>/` | Reference code and test harnesses (not published) |
+| `dev/<slug>/` | Tutorial templates and test harnesses (not published) |
 | `tools/diagrams/` | Excalidraw-style diagram sources and renderer (see its README) |
 | `docs/` | Research and roadmaps |
 
@@ -19,8 +19,8 @@ Folders are named after the content's name on Labs, including its hash suffix, s
 
 ## Tutorials
 
-- [Open a Kubernetes Zoo: Design a Validated CustomResourceDefinition](tutorials/open-a-kubernetes-zoo-9ad54ae8/index.md) (draft)
-- [Build a Kubernetes Operator From Scratch: A Pet That Gets Hungry](tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c/index.md) (draft)
+- [How Kubernetes CRDs Work: Designing a Validated API From Scratch](tutorials/open-a-kubernetes-zoo-9ad54ae8/index.md) (draft)
+- [How Kubernetes Operators Work: Building a Controller From Scratch](tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c/index.md) (draft)
 
 ## Challenges
 
@@ -36,14 +36,27 @@ Each harness extracts the task scripts from the published `index.md` and runs th
 current kubectl context, and they delete Pets, Pods and CRDs there, so point them at a disposable cluster.
 A `kind` cluster works for both and runs real Pods, which the operator tutorial needs to be tested properly:
 `kind create cluster --name iximiuz-test --kubeconfig /tmp/kc && KUBECONFIG=/tmp/kc dev/.../run-tests.sh`.
-Everything is currently tested against Kubernetes v1.37.1, Go 1.26.8, controller-runtime v0.25.1 and controller-tools v0.22.0.
+Everything is currently tested against Kubernetes v1.37, Go 1.26.8, controller-runtime v0.25.1 and controller-tools v0.22.0.
 
 ```sh
 dev/open-a-kubernetes-zoo/run-tests.sh          # zoo tutorial: each CRD step passes exactly the expected checks
-dev/build-a-kubernetes-operator/run-tests.sh    # tutorial: builds the code *from the tutorial* and walks every step
+dev/build-a-kubernetes-operator/run-tests.sh    # operator tutorial: builds the shipped project and walks every step
 ```
 
-Both tutorials are rendered from a `tutorial.template.md` in their `dev/` folder, which pulls code blocks
-from the tested files next to it: the CRD steps in `dev/open-a-kubernetes-zoo/crd/` and the operator project in
-`dev/build-a-kubernetes-operator/pet-operator/`. Edit the template or the files, then run that folder's `render.py`.
-The finished zoo CRD (`crd/5-status-and-columns.yaml`) is also Part 1 of the operator tutorial.
+Each tutorial ships its files to the playground, and the shipped files next to `index.md` are the source of truth:
+
+- zoo: `pet-crd/` (the five CRD versions), `pets/` (the adopted and turned-away Pet manifests) and
+  `__static__/pet-api.txt` (the spec, unpacked as `~/pet-api.md`);
+- operator: `pet-operator/` (the Go project, the hand-written CRD and the bash controller).
+
+`labctl content push` packs each folder into `__static__/<folder>.tar.gz`, which the `startupFiles` in the
+front matter unpack into the learner's home directory. The tutorial's `.labctlignore` keeps the raw folders out
+of the push. Each folder's own `.labctlignore` keeps `.DS_Store` out of the archive, and `pet-operator/`'s also
+keeps out what the learner generates (`zz_generated.deepcopy.go`, the generated CRD); those stay in the repo as
+references the harness diffs against. `dev/render.py --archive-files <folder>` prints exactly what labctl packs.
+
+The pages are rendered from `dev/<name>/tutorial.template.md` by `dev/render.py`, which quotes the shipped
+files with `{{file:path}}` and `{{excerpt:path#from=RE#to=RE}}` (see its docstring) and fails if an excerpt
+anchor stops matching exactly one line. It also copies the finished zoo CRD (`pet-crd/5-status-and-columns.yaml`)
+to `pet-operator/config/crd-by-hand.yaml` with a "generated, edit the zoo file" header. Edit a template or a shipped
+file, then run `dev/render.py`.

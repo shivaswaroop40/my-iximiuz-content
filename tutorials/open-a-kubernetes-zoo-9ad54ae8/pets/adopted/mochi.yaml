@@ -1,0 +1,8 @@
+apiVersion: zoo.example.com/v1alpha1
+kind: Pet
+metadata:
+  name: mochi
+  namespace: zoo
+spec:
+  species: cat
+  toy: yarn

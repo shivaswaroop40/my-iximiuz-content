@@ -1,4 +1,4 @@
-# Step 5 of the zoo tutorial: the finished CRD. The operator tutorial's Part 1 embeds it too.
+# Step 4: defaults.
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -16,15 +16,6 @@ spec:
   - name: v1alpha1
     served: true
     storage: true
-    subresources:
-      status: {}
-    additionalPrinterColumns:
-    - {name: Species,  type: string, jsonPath: .spec.species}
-    - {name: Face,     type: string, jsonPath: .status.face}
-    - {name: Mood,     type: string, jsonPath: .status.mood}
-    - {name: Toy,      type: string, jsonPath: .spec.toy}
-    - {name: Last Fed, type: date,   jsonPath: .spec.lastFedAt}
-    - {name: Age,      type: date,   jsonPath: .metadata.creationTimestamp}
     schema:
       openAPIV3Schema:
         type: object
@@ -63,10 +54,3 @@ spec:
               lastFedAt:
                 type: string
                 format: date-time
-          status:
-            type: object
-            properties:
-              mood:
-                type: string
-              face:
-                type: string

@@ -1,0 +1,9 @@
+# Cacti must not have a toy.
+apiVersion: zoo.example.com/v1alpha1
+kind: Pet
+metadata:
+  name: spiky-ball
+  namespace: zoo
+spec:
+  species: cactus
+  toy: tennis ball

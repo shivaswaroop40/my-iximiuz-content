@@ -1,0 +1,8 @@
+# Unicorns are not on the list of species.
+apiVersion: zoo.example.com/v1alpha1
+kind: Pet
+metadata:
+  name: sparkles
+  namespace: zoo
+spec:
+  species: unicorn
