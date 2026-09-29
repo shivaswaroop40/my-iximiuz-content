@@ -428,6 +428,15 @@ By the end of this tutorial, you will have a CustomResourceDefinition (CRD) for 
 It will reject invalid Pets with clear errors, fill in the fields you leave out, keep the status separate from the spec, and show useful columns in `kubectl get`.
 There's no controller and no code involved, only YAML and `kubectl`.
 
+Here's the whole picture of what you'll end up with:
+
+::image-box
+---
+:src: __static__/crd-overview.png
+:alt: 'The finished Pet API: the manifests in ~/pets/adopted go through kube-apiserver, which checks them against the Pet CRD (names, schema, CEL rules, defaults, status, printer columns) and stores them in etcd with the defaults filled in. The manifests in ~/pets/turned-away are rejected with a clear error. kubectl get pets shows the stored Pets in custom columns.'
+---
+::
+
 I went with pets because the API is small enough to keep in your head.
 It still has a couple of rules that are hard to express in a schema, and those rules show what CRD validation can do.
 
