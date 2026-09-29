@@ -2,11 +2,11 @@
 # Walks the zoo tutorial against whatever cluster the current kubectl context points at,
 # using the tutorial's own task scripts and the CRD files the playground ships (pet-crd/):
 #
-#   1. init             -> scenario files + zoo namespace
+#   1. init             -> the shipped scenario files (pets/, __static__/pet-api.md) + zoo namespace
 #   2. no CRD           -> every verify task must FAIL
 #   3. tutorial steps   -> after each of the 5 CRD blocks, exactly the expected tasks pass
 #   4. gotcha variants  -> missing parent default / string-compared durations / no range rule
-#                          FAIL the right task, with a useful hint
+#                          FAIL the right task, and its hint says the expected thing
 #   5. learner actions  -> apply adopted pets, patch status -> everything passes
 #
 # The cluster must be disposable: the script deletes the Pet CRD and the zoo namespace's Pets.
@@ -19,11 +19,18 @@ REFERENCE="$HERE/../../tutorials/open-a-kubernetes-zoo-9ad54ae8/pet-crd/5-status
 WORK="$(mktemp -d)"
 kubectl config view --raw > "$WORK/kubeconfig" || { echo "no kubeconfig"; exit 1; }
 export KUBECONFIG="$WORK/kubeconfig"
-export HOME="$WORK/home"   # init writes scenario files into $HOME
+export HOME="$WORK/home"
 mkdir -p "$HOME"
 CRD=pets.zoo.example.com
 
 "$HERE/../render.py" >/dev/null || exit 1
+
+# The playground's startupFiles put these in the learner's home before init runs.
+TUTORIAL_DIR="$(dirname "$INDEX")"
+while IFS= read -r f; do
+  mkdir -p "$HOME/pets/$(dirname "$f")" && cp -p "$TUTORIAL_DIR/pets/$f" "$HOME/pets/$f"
+done < <("$HERE/../render.py" --archive-files "$TUTORIAL_DIR/pets")
+cp -p "$TUTORIAL_DIR/__static__/pet-api.md" "$HOME/pet-api.md"
 
 python3 - "$INDEX" "$WORK" <<'PY'
 import re, sys, yaml, pathlib
@@ -56,8 +63,8 @@ VERIFY=(verify_crd_registered verify_crd_discoverable verify_schema_accepts_vali
         verify_status_reported)
 FAILURES=0
 
-expect() { # expect <pass|fail> <task>
-  local want=$1 task=$2 got
+expect() { # expect <pass|fail> <task> [text the hint must print when the task fails]
+  local want=$1 task=$2 hint_text=${3:-} got hint
   if bash "$WORK/$task.run.sh" >/dev/null 2>&1; then got=pass; else got=fail; fi
   if [ "$got" = "$want" ]; then
     printf '  ok    %-30s %s\n' "$task" "$got"
@@ -66,7 +73,12 @@ expect() { # expect <pass|fail> <task>
     FAILURES=$((FAILURES + 1))
   fi
   if [ "$got" = fail ] && [ -f "$WORK/$task.hint.sh" ]; then
-    bash "$WORK/$task.hint.sh" 2>&1 | sed 's/^/          hint: /'
+    hint=$(bash "$WORK/$task.hint.sh" 2>&1)
+    [ -n "$hint" ] && echo "$hint" | sed 's/^/          hint: /'
+    if [ -n "$hint_text" ]; then
+      if echo "$hint" | grep -qF -- "$hint_text"; then printf '  ok    %-30s hint says "%s"\n' "$task" "$hint_text"
+      else printf '  FAIL  %-30s hint should say "%s"\n' "$task" "$hint_text"; FAILURES=$((FAILURES + 1)); fi
+    fi
   fi
 }
 
@@ -109,6 +121,7 @@ for t in "${VERIFY[@]}"; do expect fail "$t"; done
 echo "== tutorial step 1: names only"
 apply_crd "$WORK/step1.yaml"
 expect_only verify_crd_registered verify_crd_discoverable   # accepts_valid also needs a rejection
+expect fail verify_schema_accepts_valid "still accepts anything"
 [ "$(turned_away_rejected)" = 0 ] && ok "all five turned-away pets get in" || bad "step 1 should let every turned-away pet in"
 
 echo "== tutorial step 2: OpenAPI schema"
@@ -155,14 +168,14 @@ crd = yaml.safe_load(open(sys.argv[1]))
 del crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]["diet"]["default"]
 yaml.safe_dump(crd, open(sys.argv[2], "w"), allow_unicode=True)
 PY
-apply_crd "$WORK/no-parent-default.yaml" 2>/dev/null || echo "  (CRD without parent default was rejected by the API server)"
-expect fail verify_defaults
+apply_crd "$WORK/no-parent-default.yaml" || bad "the API server rejected the CRD without a parent default, so this gotcha tests nothing"
+expect fail verify_defaults "applies only if its parent object exists"
 
 echo "== gotcha: durations compared as strings"
 reset
 sed "s/duration(self.diet.feedEvery) >= duration('1h')/self.diet.feedEvery >= '1h'/" "$REFERENCE" > "$WORK/string-compare.yaml"
-apply_crd "$WORK/string-compare.yaml"
-expect fail verify_house_rules
+apply_crd "$WORK/string-compare.yaml" || bad "the API server rejected the string-compare CRD"
+expect fail verify_house_rules "as strings won't work"
 
 echo "== gotcha: no feedEvery range rule (a pattern checks shape, not size)"
 reset
@@ -172,8 +185,8 @@ crd = yaml.safe_load(open(sys.argv[1]))
 del crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]["diet"]["properties"]["feedEvery"]["x-kubernetes-validations"]
 yaml.safe_dump(crd, open(sys.argv[2], "w"), allow_unicode=True)
 PY
-apply_crd "$WORK/no-range.yaml"
-expect fail verify_schema_rejects_invalid
+apply_crd "$WORK/no-range.yaml" || bad "the API server rejected the CRD without a range rule"
+expect fail verify_schema_rejects_invalid 'feedEvery is "0s"'
 
 echo "== step 6: the learner adopts the pets"
 reset

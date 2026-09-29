@@ -70,6 +70,7 @@ tasks:
   verify_crd_minimal:
     machine: dev-machine
     user: laborant
+    timeout_seconds: 60
     run: |
       [ "$(kubectl get crd pets.zoo.example.com -o jsonpath='{.status.conditions[?(@.type=="Established")].status}' 2>/dev/null)" = "True" ] || exit 1
       kubectl get pets -n zoo mochi >/dev/null 2>&1
@@ -83,6 +84,7 @@ tasks:
   verify_crd_full:
     machine: dev-machine
     user: laborant
+    timeout_seconds: 60
     needs:
     - verify_crd_minimal
     run: |
@@ -104,6 +106,7 @@ tasks:
   verify_naive_controller:
     machine: dev-machine
     user: laborant
+    timeout_seconds: 60
     needs:
     - verify_crd_full
     run: |
@@ -114,6 +117,7 @@ tasks:
   verify_operator_adopted:
     machine: dev-machine
     user: laborant
+    timeout_seconds: 60
     needs:
     - verify_naive_controller
     run: |
@@ -127,12 +131,14 @@ tasks:
       if [ "$reason" = "PodNameTaken" ]; then
         echo "A mochi Pod that the Pet doesn't own is in the way, probably left over from the bash controller."
         echo "Delete it with 'kubectl delete pod -n zoo mochi', and the operator moves mochi in within 10 seconds."
+        echo "(If you just deleted and re-created mochi, wait 10 seconds: the old Pet's Pod is still being cleaned up.)"
+      elif [ "$reason" = "ConfigMapNameTaken" ]; then
+        echo "A mochi-card ConfigMap that the Pet doesn't own is in the way."
+        echo "Delete it with 'kubectl delete configmap -n zoo mochi-card', and the operator creates its own within 10 seconds."
+        echo "(If you just deleted and re-created mochi, wait 10 seconds: the old Pet's card is still being cleaned up.)"
       elif [ -z "$(kubectl get crd pets.zoo.example.com -o jsonpath='{.spec.versions[0].schema.openAPIV3Schema.properties.status.properties.observedGeneration}' 2>/dev/null)" ]; then
         echo "The API server still uses the hand-written CRD, so it drops status.observedGeneration."
         echo "Apply the generated one: kubectl apply -f ~/pet-operator/config/zoo.example.com_pets.yaml"
-      elif kubectl get configmap -n zoo mochi-card >/dev/null 2>&1 && \
-           [ -z "$(kubectl get configmap -n zoo mochi-card -o jsonpath='{.metadata.ownerReferences[?(@.controller==true)].kind}')" ]; then
-        echo "A mochi-card ConfigMap that the Pet doesn't own is in the way. Delete it: kubectl delete configmap -n zoo mochi-card"
       elif [ -z "$(kubectl get pet -n zoo mochi -o jsonpath='{.status.mood}' 2>/dev/null)" ]; then
         echo "mochi has no status yet. Is the operator running? Start it with ./pet-operator in ~/pet-operator."
       elif [ "$(kubectl get pet -n zoo mochi -o jsonpath='{.status.mood}')" = "RanAway" ]; then
@@ -142,6 +148,7 @@ tasks:
   verify_ran_away:
     machine: dev-machine
     user: laborant
+    timeout_seconds: 60
     needs:
     - verify_operator_adopted
     run: |
@@ -161,6 +168,7 @@ tasks:
   verify_came_home:
     machine: dev-machine
     user: laborant
+    timeout_seconds: 60
     needs:
     - verify_ran_away
     run: |
@@ -173,6 +181,7 @@ tasks:
   verify_second_pet:
     machine: dev-machine
     user: laborant
+    timeout_seconds: 60
     needs:
     - verify_operator_adopted
     run: |
@@ -188,6 +197,7 @@ tasks:
   verify_garbage_collected:
     machine: dev-machine
     user: laborant
+    timeout_seconds: 60
     needs:
     - verify_second_pet
     run: |
@@ -532,7 +542,7 @@ while true; do
     species=$(kubectl get pet -n "$ns" "$name" -o jsonpath='{.spec.species}')
 
     if ! kubectl get pod -n "$ns" "$name" >/dev/null 2>&1; then
-      kubectl run "$name" -n "$ns" --image=busybox:1.37 --restart=Never -- \
+      kubectl run "$name" -n "$ns" --image=public.ecr.aws/docker/library/busybox:1.37 --restart=Never -- \
         sh -c "while true; do echo \"I am $name the $species\"; sleep 10; done"
     fi
   done
@@ -819,8 +829,6 @@ Everything starts with `Reconcile`:
 // Reconcile makes the world match one Pet. It is called with just a namespace/name,
 // never with "what changed", so it always starts by reading the current state.
 func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-
 	// 1. Observe: fetch the desired state.
 	var pet zoov1alpha1.Pet
 	if err := r.Get(ctx, req.NamespacedName, &pet); err != nil {
@@ -855,33 +863,51 @@ The mood isn't stored anywhere.
 Nothing in the cluster changes when time passes, so every run calculates the mood from `lastFedAt` and the current time.
 `moodAt` also returns when the mood changes next, which we'll need in a moment.
 
-Then it acts. The pet's "card" goes into a ConfigMap:
+Then it acts. The pet's "card" goes into a ConfigMap, and the Pod shows it:
 
 ```go [~/pet-operator/internal/controller/pet_controller.go]
 	// 2. Act: the ConfigMap holds the pet's "card", the Pod shows it.
+	// takenBy names the kind of object in the way, if someone else owns the name we need.
 	card := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: pet.Name + "-card", Namespace: pet.Namespace}}
-	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, card, func() error {
-		// An existing ConfigMap has a ResourceVersion. Never take over one that isn't ours.
-		if card.ResourceVersion != "" && !metav1.IsControlledBy(card, &pet) {
-			return fmt.Errorf("ConfigMap %s already exists and doesn't belong to %s", card.Name, pet.Name)
-		}
-		card.Data = map[string]string{"card": renderCard(&pet, mood)}
-		return controllerutil.SetControllerReference(&pet, card, r.Scheme)
-	})
+	takenBy, podName := "", ""
+	cardTaken, err := r.reconcileCard(ctx, &pet, card, mood)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 ```
 
-`CreateOrUpdate` reads the ConfigMap and applies your function to it.
-If the ConfigMap doesn't exist, it creates it. Otherwise, it sends an update only if the function changed something.
-The first check in the function makes sure the controller never takes over a ConfigMap that someone else created, the same rule it follows for Pods below.
-`SetControllerReference` adds an owner reference with `controller: true` that points to the Pet. We'll use it at the end.
-
 The Pod only mounts the card, and the controller never updates the Pod.
 Everything that can change lives in the ConfigMap, which solves the bash controller's problem with the stale species.
 
-Before it creates a Pod, the controller checks who owns the existing one:
+Here's how the card gets written:
+
+```go [~/pet-operator/internal/controller/pet_controller.go]
+func (r *PetReconciler) reconcileCard(ctx context.Context, pet *zoov1alpha1.Pet, card *corev1.ConfigMap, mood string) (taken bool, err error) {
+	if err := r.Get(ctx, client.ObjectKeyFromObject(card), card); err == nil && !metav1.IsControlledBy(card, pet) {
+		r.Recorder.Eventf(pet, card, corev1.EventTypeWarning, "ConfigMapNameTaken", "UpdateCard", "ConfigMap %s already exists and doesn't belong to %s", card.Name, pet.Name)
+		return true, nil
+	} else if client.IgnoreNotFound(err) != nil {
+		return false, err
+	}
+
+	// CreateOrUpdate creates the ConfigMap, or updates it only if the function changed something.
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, card, func() error {
+		card.Data = map[string]string{"card": renderCard(pet, mood)}
+		return controllerutil.SetControllerReference(pet, card, r.Scheme)
+	})
+	if err == nil && op != controllerutil.OperationResultNone {
+		log.FromContext(ctx).Info("card updated", "mood", mood, "operation", op)
+	}
+	return false, err
+}
+```
+
+`CreateOrUpdate` reads the ConfigMap and applies your function to it.
+If the ConfigMap doesn't exist, it creates it. Otherwise, it sends an update only if the function changed something.
+`SetControllerReference` adds an owner reference with `controller: true` that points to the Pet. We'll use it at the end.
+
+It's important to know that a controller never uses or deletes objects it doesn't own.
+Before touching the card, `reconcileCard` checks who owns it, and `reconcilePod` does the same for the Pod:
 
 ```go [~/pet-operator/internal/controller/pet_controller.go]
 	// Never use, or delete, what you don't own.
@@ -894,21 +920,24 @@ Before it creates a Pod, the controller checks who owns the existing one:
 	}
 ```
 
-If a Pod named `mochi` exists but isn't controlled by the Pet, the controller leaves it alone.
-It reports `PodNameTaken` in the Pet's `AtHome` condition, records an event, and checks again every 10 seconds.
+If a Pod named `mochi` or a ConfigMap named `mochi-card` exists but isn't controlled by the Pet, the controller leaves it alone.
+It reports `PodNameTaken` or `ConfigMapNameTaken` in the Pet's `AtHome` condition, records an event, and checks again every 10 seconds.
 `Recorder.Eventf` records Kubernetes events, which show up in `kubectl describe pet`.
 
 After acting, the controller reports what it saw in the status:
 
 ```go [~/pet-operator/internal/controller/pet_controller.go]
 	// 3. Report: write what we observed to status.
+	base := pet.DeepCopy()
 	pet.Status.Mood = mood
 	pet.Status.Face = faces[pet.Spec.Species][mood]
 	pet.Status.PodName = podName
 	pet.Status.ObservedGeneration = pet.Generation
 ```
 
-The rest of that block sets the `AtHome` condition and saves everything with `r.Status().Update()`, which goes through the `/status` endpoint.
+The rest of that block sets the `AtHome` condition and saves the status with `r.Status().Patch()`, which goes through the `/status` endpoint.
+A merge patch sends only the fields that changed.
+An `Update` would send the whole object, and the API server would reject it whenever the controller's cached copy of the Pet is a step behind, which happens right after the controller's own writes.
 
 And finally, the part that makes the pets get hungry:
 
@@ -918,9 +947,10 @@ And finally, the part that makes the pets get hungry:
 	if !moodChangesAt.IsZero() {
 		wake = moodChangesAt.Sub(now) + time.Second
 	}
-	// The cache sees every Pod, but only events on Pods we own queue a reconcile,
-	// so nothing tells us when someone else's Pod goes away. Check back soon.
-	if nameTaken && wake > 10*time.Second {
+	// Only events on objects we own queue a reconcile, so nothing tells us when
+	// someone else's Pod or ConfigMap goes away. Check back soon, even if the pet
+	// ran away and has no mood change coming (wake == 0).
+	if takenBy != "" && (wake == 0 || wake > 10*time.Second) {
 		wake = 10 * time.Second
 	}
 	return ctrl.Result{RequeueAfter: wake}, nil
@@ -986,24 +1016,11 @@ In production, operators run inside the cluster.
 During development, it's faster to run them locally with your kubeconfig, which is what `make run` does in Kubebuilder projects:
 
 ```sh
-go mod tidy
 go build -o pet-operator . && ./pet-operator
 ```
 
 The first build takes a couple of minutes, because it compiles client-go and controller-runtime.
 Keep the operator running, and use the other terminal tab from now on.
-
-::details-box
----
-:summary: What does "the object has been modified; please apply your changes to the latest version" mean?
----
-You'll probably see this `Reconciler error` in the operator logs soon after mochi moves in.
-Don't worry, it's expected.
-The controller tried to update an object that changed after it read it, so the API server rejected the update.
-This is called **optimistic concurrency**.
-controller-runtime puts the Pet back in the queue with a backoff, and a later reconcile reads the new version and succeeds.
-Don't retry the update with the same object you already read.
-::
 
 
 A pet gets hungry when `feedEvery` (10 minutes by default) has passed since its last feeding.
@@ -1015,7 +1032,8 @@ Depending on how long ago that was, it's happy, hungry, or already gone:
 kubectl get pets,pods -n zoo
 ```
 
-Whatever happened, feeding fixes it. A pet is fed by setting `spec.lastFedAt` to the current time, so let's add a small helper to the shell:
+Whatever happened, feeding fixes it.
+(A note on the outputs below: I went through these steps quickly, so the ages in my outputs are shorter than yours will be.) A pet is fed by setting `spec.lastFedAt` to the current time, so let's add a small helper to the shell:
 
 ```sh
 grep -q '^feed()' ~/.bashrc || cat >> ~/.bashrc <<'EOF'
@@ -1304,8 +1322,8 @@ The controller doesn't need to see every event, only the current state, so the c
 
 ### Deleting a Pet
 
-Remember the `goldie` Pod that the bash controller left behind?
-Create a second Pet:
+Remember how deleting `goldie` left its Pod running under the bash controller?
+Let's try that again with the operator. Create a second Pet:
 
 ```sh
 kubectl apply -f - <<'EOF'
@@ -1401,9 +1419,9 @@ If something doesn't behave the way you expect:
 - If `controller-gen` or `go` isn't found, make sure your `PATH` has both Go directories: `export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin`.
 - If `go build` fails with missing packages, run `go mod tidy` in `~/pet-operator` again.
 - If `mochi` never gets a Pod, check its conditions with `kubectl describe pet -n zoo mochi`. `PodNameTaken` means a Pod from the bash controller is still there. Delete it, and the operator moves `mochi` in within 10 seconds.
-- If a Pod is stuck in `Pending` or `ContainerCreating`, check `kubectl get events -n zoo`. The Pod needs to pull the `busybox:1.37` image, and the cluster needs a working networking plugin.
-- If the first checkpoint doesn't turn green and `kubectl get pet -n zoo mochi -o jsonpath='{.status.observedGeneration}'` is empty, the API server still uses the hand-written CRD, which drops that field. Apply `config/zoo.example.com_pets.yaml`.
-- If the operator logs say `ConfigMap mochi-card already exists and doesn't belong to mochi`, someone else created that ConfigMap. Delete it, and the operator creates its own.
+- If a Pod is stuck in `Pending` or `ContainerCreating`, check `kubectl get events -n zoo`. The Pod needs to pull the `public.ecr.aws/docker/library/busybox:1.37` image, and the cluster needs a working networking plugin.
+- If the checkpoint after starting the operator doesn't turn green and `kubectl get pet -n zoo mochi -o jsonpath='{.status.observedGeneration}'` is empty, the API server still uses the hand-written CRD, which drops that field. Apply `config/zoo.example.com_pets.yaml`.
+- If `kubectl describe pet -n zoo mochi` shows `PodNameTaken` or `ConfigMapNameTaken`, an object that the Pet doesn't own is using the name the operator needs. Delete it, and the operator takes over within 10 seconds. If you just deleted and re-created the Pet, wait 10 seconds instead: the old Pet's objects are still being cleaned up.
 - If a change doesn't show up, check the operator logs. Every card update is logged, and so is every failed reconcile.
 - If the card in the Pod logs looks out of date, give the kubelet a minute or two to refresh the mounted ConfigMap. `kubectl get configmap -n zoo mochi-card -o jsonpath='{.data.card}'` shows the current card right away.
 

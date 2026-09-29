@@ -1,0 +1,11 @@
+apiVersion: zoo.example.com/v1alpha1
+kind: Pet
+metadata:
+  name: rex
+  namespace: zoo
+spec:
+  species: dog
+  toy: stick
+  diet:
+    food: bones
+    feedEvery: 30m

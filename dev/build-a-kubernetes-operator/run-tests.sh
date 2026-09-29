@@ -5,8 +5,9 @@
 # - The project the playground ships at startup (the tutorial's pet-operator/ folder, packed
 #   into __static__/pet-operator.tar.gz by labctl) is copied to ~/pet-operator, built with
 #   controller-gen and go, and run. That is the code the learner gets.
-# - crd-minimal.yaml and the feed() helper are taken from the *rendered* tutorial.
-# - Every other command this script runs must appear verbatim in the rendered tutorial.
+# - crd-minimal.yaml, the Pet manifests and the feed() helper are taken from the *rendered* tutorial.
+# - The other commands it runs for the learner must appear verbatim in the rendered tutorial
+#   (see CMDS). It sets up its own HOME, GOPATH and GOBIN, and it doesn't run init_go.
 # - The Go excerpts on the page are not compiled on their own; dev/render.py cuts them
 #   from the same files, and fails if an anchor stops matching exactly one line.
 # - Every task script (run and hintcheck) must pass `bash -n`, and the checkpoint tasks
@@ -53,6 +54,14 @@ assert not broken, f"task scripts with bash syntax errors: {broken}"
 feed = re.findall(r"^grep -q '\^feed\(\)' ~/.bashrc \|\| cat >> ~/.bashrc <<'EOF'\n(.*?)\nEOF$", body, re.S | re.M)
 assert len(feed) == 1, "the tutorial's feed() helper block not found"
 (work / "feed.sh").write_text(feed[0] + "\n")
+# Pet manifests the learner applies (kubectl apply [--dry-run=server] -f - <<'EOF'), by name.
+(work / "pets").mkdir(exist_ok=True)
+for doc in re.findall(r"^kubectl apply (?:--dry-run=server )?-f - <<'EOF'\n(.*?)\nEOF$", body, re.S | re.M):
+    pet = yaml.safe_load(doc)
+    if pet.get("kind") == "Pet":
+        (work / "pets" / f"{pet['metadata']['name']}.yaml").write_text(doc + "\n")
+for name in ("mochi", "sparkles", "goldie", "smaug"):
+    assert (work / "pets" / f"{name}.yaml").exists(), f"the tutorial's {name} manifest not found"
 files = re.findall(r"^cat > (\S+) <<'EOF'\n(.*?)\nEOF$", body, re.S | re.M)
 (work / "files").mkdir(exist_ok=True)
 for i, (path, content) in enumerate(files, 1):
@@ -63,11 +72,15 @@ PY
 # The playground's startupFiles unpack the shipped project here before the learner logs in.
 # Copy it the way labctl packs the archive: without what the folder's .labctlignore lists.
 SHIPPED="$(dirname "$TUTORIAL")/pet-operator"
-rsync -a --exclude-from="$SHIPPED/.labctlignore" --exclude=.labctlignore "$SHIPPED/" "$HOME/pet-operator/"
+while IFS= read -r f; do
+  mkdir -p "$HOME/pet-operator/$(dirname "$f")" && cp -p "$SHIPPED/$f" "$HOME/pet-operator/$f"
+done < <("$HERE/../render.py" --archive-files "$SHIPPED")
 for generated in api/v1alpha1/zz_generated.deepcopy.go config/zoo.example.com_pets.yaml pet-operator; do
   [ ! -e "$HOME/pet-operator/$generated" ] || { echo "the playground would ship $generated, which the learner generates"; exit 1; }
 done
-cmp -s "$HOME/pet-operator/config/crd-by-hand.yaml" "$HERE/../../tutorials/open-a-kubernetes-zoo-9ad54ae8/pet-crd/5-status-and-columns.yaml" \
+strip_header() { awk 'body || !/^#/ { body = 1; print }' "$1"; }   # drop the leading comment lines
+cmp -s <(strip_header "$HOME/pet-operator/config/crd-by-hand.yaml") \
+       <(strip_header "$HERE/../../tutorials/open-a-kubernetes-zoo-9ad54ae8/pet-crd/5-status-and-columns.yaml") \
   || { echo "the shipped crd-by-hand.yaml is not zoo step 5; run dev/render.py"; exit 1; }
 # Commands this script runs on the learner's behalf: each must still be in the tutorial, verbatim.
 while IFS= read -r cmd; do
@@ -82,7 +95,6 @@ go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.22.0
 controller-gen object paths=./api/...
 controller-gen crd paths=./api/... output:crd:dir=config
 kubectl apply -f config/zoo.example.com_pets.yaml
-go mod tidy
 go build -o pet-operator . && ./pet-operator
 CMDS
 
@@ -157,25 +169,11 @@ echo "== part 1: minimal CRD"
 write_file "~/pet-operator/config/crd-minimal.yaml"
 kubectl apply -f "$HOME/pet-operator/config/crd-minimal.yaml" >/dev/null
 kubectl wait --for=condition=Established crd/pets.zoo.example.com >/dev/null; sleep 1
-kubectl apply -f - >/dev/null <<'EOF'
-apiVersion: zoo.example.com/v1alpha1
-kind: Pet
-metadata:
-  name: mochi
-  namespace: zoo
-spec:
-  species: cat
-  toy: yarn
-EOF
+kubectl apply -f "$WORK/pets/mochi.yaml" >/dev/null
 check pass verify_crd_minimal
 examiner_grace
 check fail verify_crd_full
-assert "minimal CRD accepts a unicorn with toy: 42" bash -c "kubectl apply --dry-run=server -f - <<'EOF'
-apiVersion: zoo.example.com/v1alpha1
-kind: Pet
-metadata: {name: sparkles, namespace: zoo}
-spec: {species: unicorn, toy: 42, favoriteColor: rainbow}
-EOF"
+assert "minimal CRD accepts a unicorn with toy: 42" kubectl apply --dry-run=server -f "$WORK/pets/sparkles.yaml"
 
 echo "== part 1: full CRD by hand"
 kubectl apply -f "$HOME/pet-operator/config/crd-by-hand.yaml" >/dev/null; sleep 2
@@ -196,12 +194,7 @@ assert "naive controller recreates a deleted Pod" bash -c "u=\$(kubectl get pod 
 kubectl patch pet -n $N mochi --type=merge -p '{"spec":{"species":"dog"}}' >/dev/null; sleep 7
 assert "species change is NOT picked up (the flaw)" has pod mochi '{.spec.containers[0].args}' 'I am mochi the cat'
 kubectl patch pet -n $N mochi --type=merge -p '{"spec":{"species":"cat"}}' >/dev/null
-kubectl apply -f - >/dev/null <<'EOF'
-apiVersion: zoo.example.com/v1alpha1
-kind: Pet
-metadata: {name: goldie, namespace: zoo}
-spec: {species: dog}
-EOF
+kubectl apply -f "$WORK/pets/goldie.yaml" >/dev/null
 assert "naive controller gives goldie a Pod" kubectl get pod -n $N goldie
 kubectl delete pet -n $N goldie >/dev/null; sleep 6
 assert "goldie's Pod is orphaned" kubectl get pod -n $N goldie
@@ -214,16 +207,17 @@ go mod download
 GOBIN="$GOPATH/bin" go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.22.0
 controller-gen object paths=./api/... || FAILURES=$((FAILURES + 1))
 controller-gen crd paths=./api/... output:crd:dir=config || FAILURES=$((FAILURES + 1))
-go mod tidy >/dev/null 2>&1
 if go vet ./... && go build -o pet-operator .; then echo "  ok    tutorial code builds and vets (go $(go env GOVERSION))"; else echo "  FAIL  tutorial code does not build"; exit 1; fi
-if diff -q config/zoo.example.com_pets.yaml "$SHIPPED/config/zoo.example.com_pets.yaml" >/dev/null; then
-  echo "  ok    generated CRD matches the reference"; else echo "  FAIL  generated CRD differs from the reference"; FAILURES=$((FAILURES + 1)); fi
+for generated in config/zoo.example.com_pets.yaml api/v1alpha1/zz_generated.deepcopy.go; do
+  if diff -q "$generated" "$SHIPPED/$generated" >/dev/null; then echo "  ok    generated $generated matches the reference"
+  else echo "  FAIL  generated $generated differs from the reference"; FAILURES=$((FAILURES + 1)); fi
+done
 assert "tutorial's CRD diff step shows differences" bash -c "diff <(kubectl create --dry-run=client -o yaml -f config/crd-by-hand.yaml) <(kubectl create --dry-run=client -o yaml -f config/zoo.example.com_pets.yaml) | grep -q '^>'"
-assert "  ...and the spec schema (minus descriptions/formats) is identical" python3 - config/crd-by-hand.yaml config/zoo.example.com_pets.yaml <<'PY2'
+assert "  ...and the spec schema (minus descriptions) is identical" python3 - config/crd-by-hand.yaml config/zoo.example.com_pets.yaml <<'PY2'
 import sys, yaml
 def clean(x):
     if isinstance(x, dict):
-        return {k: clean(v) for k, v in x.items() if k not in ("description", "format")}
+        return {k: clean(v) for k, v in x.items() if k != "description"}
     if isinstance(x, list):
         return [clean(v) for v in x]
     return x
@@ -242,11 +236,17 @@ assert "  ...and the operator logs why" grep -q "ConfigMap mochi-card already ex
 hint=$(bash "$WORK/hints/verify_operator_adopted.sh" 2>&1)
 echo "$hint" | grep -q "mochi-card ConfigMap that the Pet doesn't own" && echo "  ok    hint names the foreign ConfigMap" \
   || { echo "  FAIL  hint for a foreign ConfigMap: $hint"; FAILURES=$((FAILURES + 1)); }
-stop_operator
+assert "  ...and reports ConfigMapNameTaken" is pet mochi '{.status.conditions[?(@.type=="AtHome")].reason}' ConfigMapNameTaken
 kubectl delete configmap -n $N mochi-card >/dev/null
+# Deleting an object the Pet doesn't own triggers no event; the 10s requeue has to notice.
+assert "operator takes over within its 10s requeue" bash -c "sleep 11; [ \"\$(kubectl get configmap -n $N mochi-card -o jsonpath='{.metadata.ownerReferences[?(@.controller==true)].kind}')\" = Pet ]"
+stop_operator
+# Start the next scenario from the same state: no card, no Pod.
+kubectl delete pod -n $N mochi --ignore-not-found --wait=true --timeout=90s >/dev/null
+kubectl delete configmap -n $N mochi-card --ignore-not-found >/dev/null
 
 echo "== part 3: a leftover Pod the Pet doesn't own (the learner skipped the cleanup)"
-kubectl run mochi -n $N --image=busybox:1.37 --restart=Never -- sleep 3600 >/dev/null
+kubectl run mochi -n $N --image=public.ecr.aws/docker/library/busybox:1.37 --restart=Never -- sleep 3600 >/dev/null
 start_operator
 # mochi was adopted minutes ago and never fed; here it's still Happy, on the playground it may not be.
 feed mochi
@@ -292,18 +292,7 @@ start_operator
 assert "operator restarted: card caught up" has configmap mochi-card '{.data.card}' 'cardboard box'
 
 echo "== part 4: second pet and garbage collection"
-kubectl apply -f - >/dev/null <<'EOF'
-apiVersion: zoo.example.com/v1alpha1
-kind: Pet
-metadata:
-  name: smaug
-  namespace: zoo
-spec:
-  species: dragon
-  diet:
-    food: sheep
-    feedEvery: 6h
-EOF
+kubectl apply -f "$WORK/pets/smaug.yaml" >/dev/null
 check pass verify_second_pet
 examiner_grace
 assert "smaug is a happy dragon" is pet smaug '{.status.face}' '🐲'

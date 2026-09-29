@@ -1,0 +1,10 @@
+apiVersion: zoo.example.com/v1alpha1
+kind: Pet
+metadata:
+  name: prickles
+  namespace: zoo
+spec:
+  species: cactus
+  diet:
+    food: water
+    feedEvery: 168h

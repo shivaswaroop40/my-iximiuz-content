@@ -1,0 +1,10 @@
+# "whenever" is not a duration.
+apiVersion: zoo.example.com/v1alpha1
+kind: Pet
+metadata:
+  name: whenever
+  namespace: zoo
+spec:
+  species: dog
+  diet:
+    feedEvery: whenever

@@ -29,6 +29,15 @@ playground:
     extract: true
     owner: laborant
     machines: [dev-machine]
+  - path: /home/laborant/pets
+    source: __static__/pets.tar.gz
+    extract: true
+    owner: laborant
+    machines: [dev-machine]
+  - path: /home/laborant/pet-api.md
+    source: __static__/pet-api.md
+    owner: laborant
+    machines: [dev-machine]
 
 tasks:
   init_scenario:
@@ -38,7 +47,8 @@ tasks:
     timeout_seconds: 900
     run: |
       set -euo pipefail
-
+      # The spec (~/pet-api.md), the Pet manifests (~/pets) and the CRD versions
+      # (~/pet-crd) arrive as startupFiles. This task waits for the cluster.
       for i in $(seq 1 400); do
         kubectl get --raw /readyz >/dev/null 2>&1 && break
         sleep 2
@@ -46,167 +56,10 @@ tasks:
       kubectl get --raw /readyz >/dev/null
       kubectl get namespace zoo >/dev/null 2>&1 || kubectl create namespace zoo
 
-      mkdir -p "$HOME/pets/adopted" "$HOME/pets/turned-away"
-
-      cat > "$HOME/pet-api.md" <<'SPEC'
-      # The Pet API
-
-      Group:        zoo.example.com
-      Version:      v1alpha1   (served, storage)
-      Kind:         Pet
-      Plural:       pets
-      Singular:     pet
-      Short name:   pt
-      Category:     zoo        (so `kubectl get zoo` lists them)
-      Scope:        Namespaced
-
-      ## spec
-
-      | Field          | Type                | Required | Default | Rules                                   |
-      |----------------|---------------------|----------|---------|-----------------------------------------|
-      | species        | string              | yes      |         | one of: cat, dog, dragon, cactus        |
-      | toy            | string              | no       |         | at most 20 characters                   |
-      | diet.food      | string              | no       | snacks  | at most 20 characters                   |
-      | diet.feedEvery | string              | no       | 10m     | a number followed by s, m or h (e.g. 90s, 10m, 6h), at most 10 characters, between 1s and 8760h (a year) |
-      | lastFedAt      | string (date-time)  | no       |         |                                         |
-
-      A Pet without a `diet` block must still end up with `diet.food: snacks`
-      and `diet.feedEvery: 10m`.
-
-      Validation rules (the API server must enforce these too):
-
-      - Cacti don't play with toys. A cactus must not have a `toy`.
-        Error message: "cacti don't play with toys"
-      - Dragons eat at most once an hour. A dragon's `diet.feedEvery` must be at least 1h.
-        Error message: "dragons eat at most once an hour: diet.feedEvery must be at least 1h"
-
-      ## status (written only by a controller, never by users)
-
-      | Field | Type   | Example        |
-      |-------|--------|----------------|
-      | mood  | string | Happy, Hungry  |
-      | face  | string | 😺             |
-
-      ## kubectl get output
-
-      NAME   SPECIES   FACE   MOOD   TOY   LAST FED   AGE
-      SPEC
-
-      cat > "$HOME/pets/adopted/mochi.yaml" <<'EOF'
-      apiVersion: zoo.example.com/v1alpha1
-      kind: Pet
-      metadata:
-        name: mochi
-        namespace: zoo
-      spec:
-        species: cat
-        toy: yarn
-      EOF
-
-      cat > "$HOME/pets/adopted/rex.yaml" <<'EOF'
-      apiVersion: zoo.example.com/v1alpha1
-      kind: Pet
-      metadata:
-        name: rex
-        namespace: zoo
-      spec:
-        species: dog
-        toy: stick
-        diet:
-          food: bones
-          feedEvery: 30m
-      EOF
-
-      cat > "$HOME/pets/adopted/smaug.yaml" <<'EOF'
-      apiVersion: zoo.example.com/v1alpha1
-      kind: Pet
-      metadata:
-        name: smaug
-        namespace: zoo
-      spec:
-        species: dragon
-        diet:
-          food: sheep
-          feedEvery: 6h
-      EOF
-
-      cat > "$HOME/pets/adopted/prickles.yaml" <<'EOF'
-      apiVersion: zoo.example.com/v1alpha1
-      kind: Pet
-      metadata:
-        name: prickles
-        namespace: zoo
-      spec:
-        species: cactus
-        diet:
-          food: water
-          feedEvery: 168h
-      EOF
-
-      cat > "$HOME/pets/turned-away/spiky-ball.yaml" <<'EOF'
-      # Cacti must not have a toy.
-      apiVersion: zoo.example.com/v1alpha1
-      kind: Pet
-      metadata:
-        name: spiky-ball
-        namespace: zoo
-      spec:
-        species: cactus
-        toy: tennis ball
-      EOF
-
-      cat > "$HOME/pets/turned-away/snacky-dragon.yaml" <<'EOF'
-      # Dragons must not be fed more often than once an hour.
-      apiVersion: zoo.example.com/v1alpha1
-      kind: Pet
-      metadata:
-        name: snacky-dragon
-        namespace: zoo
-      spec:
-        species: dragon
-        diet:
-          food: sheep
-          feedEvery: 15m
-      EOF
-
-      cat > "$HOME/pets/turned-away/lazy-dragon.yaml" <<'EOF'
-      # No diet, so this dragon gets the default one. Is that allowed?
-      apiVersion: zoo.example.com/v1alpha1
-      kind: Pet
-      metadata:
-        name: lazy-dragon
-        namespace: zoo
-      spec:
-        species: dragon
-      EOF
-
-      cat > "$HOME/pets/turned-away/sparkles.yaml" <<'EOF'
-      # Unicorns are not on the list of species.
-      apiVersion: zoo.example.com/v1alpha1
-      kind: Pet
-      metadata:
-        name: sparkles
-        namespace: zoo
-      spec:
-        species: unicorn
-      EOF
-
-      cat > "$HOME/pets/turned-away/whenever.yaml" <<'EOF'
-      # "whenever" is not a duration.
-      apiVersion: zoo.example.com/v1alpha1
-      kind: Pet
-      metadata:
-        name: whenever
-        namespace: zoo
-      spec:
-        species: dog
-        diet:
-          feedEvery: whenever
-      EOF
-
   verify_crd_registered:
     machine: dev-machine
     user: laborant
+    timeout_seconds: 60
     run: |
       CRD=pets.zoo.example.com
       get() { kubectl get crd "$CRD" -o jsonpath="$1" 2>/dev/null; }
@@ -238,6 +91,7 @@ tasks:
   verify_crd_discoverable:
     machine: dev-machine
     user: laborant
+    timeout_seconds: 60
     needs:
     - verify_crd_registered
     run: |
@@ -255,6 +109,7 @@ tasks:
   verify_schema_accepts_valid:
     machine: dev-machine
     user: laborant
+    timeout_seconds: 60
     needs:
     - verify_crd_registered
     run: |
@@ -308,6 +163,7 @@ tasks:
   verify_schema_rejects_invalid:
     machine: dev-machine
     user: laborant
+    timeout_seconds: 60
     needs:
     - verify_schema_accepts_valid
     run: |
@@ -368,6 +224,7 @@ tasks:
   verify_house_rules:
     machine: dev-machine
     user: laborant
+    timeout_seconds: 60
     needs:
     - verify_schema_accepts_valid
     run: |
@@ -412,6 +269,7 @@ tasks:
   verify_defaults:
     machine: dev-machine
     user: laborant
+    timeout_seconds: 60
     needs:
     - verify_schema_accepts_valid
     run: |
@@ -445,6 +303,7 @@ tasks:
   verify_status_subresource:
     machine: dev-machine
     user: laborant
+    timeout_seconds: 60
     needs:
     - verify_schema_accepts_valid
     run: |
@@ -467,6 +326,7 @@ tasks:
   verify_printer_columns:
     machine: dev-machine
     user: laborant
+    timeout_seconds: 60
     needs:
     - verify_crd_registered
     run: |
@@ -504,6 +364,7 @@ tasks:
   verify_pets_adopted:
     machine: dev-machine
     user: laborant
+    timeout_seconds: 60
     needs:
     - verify_schema_rejects_invalid
     - verify_house_rules
@@ -536,6 +397,7 @@ tasks:
   verify_status_reported:
     machine: dev-machine
     user: laborant
+    timeout_seconds: 60
     needs:
     - verify_pets_adopted
     - verify_status_subresource

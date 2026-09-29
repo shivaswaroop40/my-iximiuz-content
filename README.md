@@ -43,15 +43,20 @@ dev/open-a-kubernetes-zoo/run-tests.sh          # zoo tutorial: each CRD step pa
 dev/build-a-kubernetes-operator/run-tests.sh    # operator tutorial: builds the shipped project and walks every step
 ```
 
-Each tutorial ships its code to the playground. The shipped folder next to `index.md` is the source of truth:
-`tutorials/open-a-kubernetes-zoo-9ad54ae8/pet-crd/` (the five CRD versions) and
-`tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c/pet-operator/` (the Go project, the hand-written
-CRD and the bash controller). `labctl content push` packs each folder into `__static__/<folder>.tar.gz`, which
-the `startupFiles` in the front matter unpack into the learner's home directory. The tutorial's `.labctlignore`
-keeps the raw folder out of the push, and `pet-operator/.labctlignore` keeps the files the learner generates
-(`zz_generated.deepcopy.go`, the generated CRD) out of the archive; they stay in the repo as test references.
+Each tutorial ships its files to the playground, and the shipped files next to `index.md` are the source of truth:
+
+- zoo: `pet-crd/` (the five CRD versions), `pets/` (the adopted and turned-away Pet manifests) and
+  `__static__/pet-api.md` (the spec);
+- operator: `pet-operator/` (the Go project, the hand-written CRD and the bash controller).
+
+`labctl content push` packs each folder into `__static__/<folder>.tar.gz`, which the `startupFiles` in the
+front matter unpack into the learner's home directory. The tutorial's `.labctlignore` keeps the raw folders out
+of the push. Each folder's own `.labctlignore` keeps `.DS_Store` out of the archive, and `pet-operator/`'s also
+keeps out what the learner generates (`zz_generated.deepcopy.go`, the generated CRD); those stay in the repo as
+references the harness diffs against. `dev/render.py --archive-files <folder>` prints exactly what labctl packs.
 
 The pages are rendered from `dev/<name>/tutorial.template.md` by `dev/render.py`, which quotes the shipped
 files with `{{file:path}}` and `{{excerpt:path#from=RE#to=RE}}` (see its docstring) and fails if an excerpt
 anchor stops matching exactly one line. It also copies the finished zoo CRD (`pet-crd/5-status-and-columns.yaml`)
-to `pet-operator/config/crd-by-hand.yaml`. Edit a template or a shipped file, then run `dev/render.py`.
+to `pet-operator/config/crd-by-hand.yaml` with a "generated, edit the zoo file" header. Edit a template or a shipped
+file, then run `dev/render.py`.

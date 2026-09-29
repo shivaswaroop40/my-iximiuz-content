@@ -1,0 +1,8 @@
+# No diet, so this dragon gets the default one. Is that allowed?
+apiVersion: zoo.example.com/v1alpha1
+kind: Pet
+metadata:
+  name: lazy-dragon
+  namespace: zoo
+spec:
+  species: dragon
