@@ -5,7 +5,7 @@
 # - The project the playground ships at startup (the tutorial's pet-operator/ folder, packed
 #   into __static__/pet-operator.tar.gz by labctl) is copied to ~/pet-operator, built with
 #   controller-gen and go, and run. That is the code the learner gets.
-# - crd-minimal.yaml, the Pet manifests and the feed() helper are taken from the *rendered* tutorial.
+# - The Pet manifests and the feed() helper are taken from the *rendered* tutorial.
 # - The other commands it runs for the learner must appear verbatim in the rendered tutorial
 #   (see CMDS). It sets up its own HOME, GOPATH and GOBIN, and it doesn't run init_go.
 # - The Go excerpts on the page are not compiled on their own; dev/render.py cuts them
@@ -62,11 +62,6 @@ for doc in re.findall(r"^kubectl apply (?:--dry-run=server )?-f - <<'EOF'\n(.*?)
         (work / "pets" / f"{pet['metadata']['name']}.yaml").write_text(doc + "\n")
 for name in ("mochi", "sparkles", "goldie", "smaug"):
     assert (work / "pets" / f"{name}.yaml").exists(), f"the tutorial's {name} manifest not found"
-files = re.findall(r"^cat > (\S+) <<'EOF'\n(.*?)\nEOF$", body, re.S | re.M)
-(work / "files").mkdir(exist_ok=True)
-for i, (path, content) in enumerate(files, 1):
-    (work / "files" / str(i)).write_text(content + "\n")
-(work / "files.txt").write_text("\n".join(p for p, _ in files) + "\n")
 PY
 
 # The playground's startupFiles unpack the shipped project here before the learner logs in.
@@ -79,8 +74,10 @@ for generated in api/v1alpha1/zz_generated.deepcopy.go config/zoo.example.com_pe
   [ ! -e "$HOME/pet-operator/$generated" ] || { echo "the playground would ship $generated, which the learner generates"; exit 1; }
 done
 strip_header() { awk 'body || !/^#/ { body = 1; print }' "$1"; }   # drop the leading comment lines
-cmp -s <(strip_header "$HOME/pet-operator/config/crd-by-hand.yaml") \
-       <(strip_header "$HERE/../../tutorials/open-a-kubernetes-zoo-9ad54ae8/pet-crd/5-status-and-columns.yaml") \
+ZOO_CRD="$HERE/../../tutorials/open-a-kubernetes-zoo-9ad54ae8/pet-crd"
+cmp -s <(strip_header "$HOME/pet-operator/config/crd-minimal.yaml") <(strip_header "$ZOO_CRD/1-names.yaml") \
+  || { echo "the shipped crd-minimal.yaml is not zoo step 1; run dev/render.py"; exit 1; }
+cmp -s <(strip_header "$HOME/pet-operator/config/crd-by-hand.yaml") <(strip_header "$ZOO_CRD/5-status-and-columns.yaml") \
   || { echo "the shipped crd-by-hand.yaml is not zoo step 5; run dev/render.py"; exit 1; }
 # Commands this script runs on the learner's behalf: each must still be in the tutorial, verbatim.
 while IFS= read -r cmd; do
@@ -97,21 +94,6 @@ controller-gen crd paths=./api/... output:crd:dir=config
 kubectl apply -f config/zoo.example.com_pets.yaml
 go build -o pet-operator . && ./pet-operator
 CMDS
-
-# write_file <path as written in the tutorial>: materialize that heredoc from the tutorial.
-write_file() {
-  local i=0 p
-  while read -r p; do
-    i=$((i + 1))
-    if [ "$p" = "$1" ]; then
-      local dest="${p/#\~/$HOME}"
-      mkdir -p "$(dirname "$dest")"
-      cp "$WORK/files/$i" "$dest"
-      return 0
-    fi
-  done < "$WORK/files.txt"
-  echo "tutorial has no file block for $1"; exit 1
-}
 
 # The Labs examiner polls tasks, so a state that passes for only a few seconds can go unseen.
 # A learner waits for each checkpoint to turn green; give it the same time before the next step
@@ -166,7 +148,6 @@ for t in verify_crd_minimal verify_crd_full verify_naive_controller verify_opera
          verify_ran_away verify_came_home verify_second_pet verify_garbage_collected; do check fail "$t"; done
 
 echo "== part 1: minimal CRD"
-write_file "~/pet-operator/config/crd-minimal.yaml"
 kubectl apply -f "$HOME/pet-operator/config/crd-minimal.yaml" >/dev/null
 kubectl wait --for=condition=Established crd/pets.zoo.example.com >/dev/null; sleep 1
 kubectl apply -f "$WORK/pets/mochi.yaml" >/dev/null

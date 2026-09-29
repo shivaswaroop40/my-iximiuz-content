@@ -270,14 +270,13 @@ builds the same CRD step by step.
 
 Let's start small.
 A CRD needs a group, a kind with its plural and singular names, and at least one version with a schema.
-The schema below accepts any `spec` for now:
+The smallest one is already in `~/pet-operator/config/crd-minimal.yaml`, and it has two parts.
 
-```sh
-cat > ~/pet-operator/config/crd-minimal.yaml <<'EOF'
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
+The first part names the new resource:
+
+```yaml [~/pet-operator/config/crd-minimal.yaml]
 metadata:
-  name: pets.zoo.example.com   # must be <plural>.<group>
+  name: pets.zoo.example.com
 spec:
   group: zoo.example.com
   scope: Namespaced
@@ -285,19 +284,36 @@ spec:
     kind: Pet
     plural: pets
     singular: pet
+    shortNames: [pt]
+    categories: [zoo]
+```
+
+- `group` becomes the first half of every Pet's `apiVersion`, so it's `zoo.example.com/v1alpha1`.
+- `metadata.name` must be `<plural>.<group>`. The API server rejects the CRD if it isn't.
+- `scope: Namespaced` makes Pets live in a namespace, like Pods. The alternative is `Cluster`, like Nodes.
+- `plural` goes in the URL (`/apis/zoo.example.com/v1alpha1/namespaces/zoo/pets`), and `kind` goes in the manifests.
+- `shortNames` and `categories` are aliases for `kubectl`, so `kubectl get pt` and `kubectl get zoo` work too.
+
+The second part lists the versions:
+
+```yaml [~/pet-operator/config/crd-minimal.yaml]
   versions:
   - name: v1alpha1
-    served: true      # the API server answers requests for this version
-    storage: true     # objects are stored in etcd in this version
+    served: true
+    storage: true
     schema:
       openAPIV3Schema:
         type: object
-        properties:
-          spec:
-            type: object
-            x-kubernetes-preserve-unknown-fields: true   # accept any fields, for now
-EOF
+        x-kubernetes-preserve-unknown-fields: true
+```
 
+- `served: true` means the API server answers requests for `v1alpha1`.
+- `storage: true` means objects are stored in etcd in this version. When there are several versions, exactly one of them has it.
+- The schema is required, but this one accepts anything: `x-kubernetes-preserve-unknown-fields` tells the API server to keep every field it doesn't know. We'll make it strict in the next section.
+
+Apply it:
+
+```sh
 kubectl apply -f ~/pet-operator/config/crd-minimal.yaml
 ```
 
@@ -305,35 +321,41 @@ If everything goes well, you should see a new REST endpoint right away:
 
 ```sh
 kubectl api-resources --api-group=zoo.example.com
-kubectl get --raw /apis/zoo.example.com/v1alpha1 | python3 -m json.tool
+kubectl get --raw /apis/zoo.example.com/v1alpha1 | jq
 ```
 
 ```text
 NAME   SHORTNAMES   APIVERSION                 NAMESPACED   KIND
-pets                zoo.example.com/v1alpha1   true         Pet
+pets   pt           zoo.example.com/v1alpha1   true         Pet
 {
-    "kind": "APIResourceList",
-    "apiVersion": "v1",
-    "groupVersion": "zoo.example.com/v1alpha1",
-    "resources": [
-        {
-            "name": "pets",
-            "singularName": "pet",
-            "namespaced": true,
-            "kind": "Pet",
-            "verbs": [
-                "delete",
-                "deletecollection",
-                "get",
-                "list",
-                "patch",
-                "create",
-                "update",
-                "watch"
-            ],
-            "storageVersionHash": "rsi7zQxickQ="
-        }
-    ]
+  "kind": "APIResourceList",
+  "apiVersion": "v1",
+  "groupVersion": "zoo.example.com/v1alpha1",
+  "resources": [
+    {
+      "name": "pets",
+      "singularName": "pet",
+      "namespaced": true,
+      "kind": "Pet",
+      "verbs": [
+        "delete",
+        "deletecollection",
+        "get",
+        "list",
+        "patch",
+        "create",
+        "update",
+        "watch"
+      ],
+      "shortNames": [
+        "pt"
+      ],
+      "categories": [
+        "zoo"
+      ],
+      "storageVersionHash": "rsi7zQxickQ="
+    }
+  ]
 }
 ```
 
@@ -394,7 +416,9 @@ pet.zoo.example.com/sparkles created (server dry run)
 ```
 
 The API server accepts it, because the schema allows any `spec`.
-And nothing else happens. There's no Pod for `mochi` either:
+And nothing else happens.
+Every pet is supposed to live in its own Pod, which keeps running for as long as the pet is around.
+But there's no Pod for `mochi`:
 
 ```sh
 kubectl get pods -n zoo
@@ -424,7 +448,6 @@ The table below goes through the rest of the file:
 
 | Part of the CRD | What the API server does with it |
 |---|---|
-| `shortNames`, `categories` | Makes `kubectl get pt` and `kubectl get zoo` work. |
 | `openAPIV3Schema` with `type`, `required`, `enum`, `maxLength`, `pattern`, `format` | Rejects invalid objects before they reach etcd. `kubectl` gets an error for unknown fields, and less strict clients get them pruned. |
 | `x-kubernetes-validations` | Evaluates [CEL](https://kubernetes.io/docs/reference/using-api/cel/) rules that OpenAPI can't express, such as "a cactus can't have a toy". The cactus rule and the dragon rule are on `spec`, because each of them reads two fields. |
 | `duration(...)` | Compares durations as time, not as text. As strings, `'59m' >= '1h'` would be `true`. |
@@ -512,27 +535,16 @@ Waiting for the CRD to validate Pets and fill in defaults...
 The API server rejects invalid Pets and fills in the default diet for valid ones.
 ::
 
-::details-box
----
-:summary: Why is status a separate subresource?
----
-Without a status subresource, `.status` is an ordinary field.
-Any client that can update a Pet can change its status, and every status update by the controller increases `metadata.generation`.
-With the subresource enabled:
-
-- Writes to the main resource ignore `.status`.
-- Writes to `/status` ignore everything except `.status`.
-- `metadata.generation` increases only when the `spec` changes.
-
-The last point lets a controller set `status.observedGeneration` to the `metadata.generation` it has acted on.
-We'll use it in the Go controller.
-::
-
 ## Writing a controller in bash
 
 Now that the API is in place, it's time to write the controller.
 A controller is a loop.
 It reads the desired state, compares it with the actual state, changes the actual state to match, and then repeats.
+
+For our pets, the desired state is the Pet: `mochi` is a cat that likes yarn.
+The actual state is a Pod where `mochi` lives, and a Pet without one is a pet that doesn't exist yet.
+So the controller reads Pets and creates Pods.
+A Deployment works the same way: you write the Deployment, and controllers turn it into Pods.
 
 The loop fits in a few lines of bash, in `~/pet-operator/bash/naive-controller.sh`.
 Every 5 seconds, it goes through all Pets and creates a Pod for each Pet that doesn't have one yet:
@@ -940,6 +952,21 @@ After acting, the controller reports what it saw in the status:
 The rest of that block sets the `AtHome` condition and saves the status with `r.Status().Patch()`, which goes through the `/status` endpoint.
 A merge patch sends only the fields that changed.
 An `Update` would send the whole object, and the API server would reject it whenever the controller's cached copy of the Pet is a step behind, which happens right after the controller's own writes.
+
+::details-box
+---
+:summary: Why is status a separate subresource?
+---
+Without a status subresource, `.status` is an ordinary field.
+Any client that can update a Pet can change its status, and every status update by the controller increases `metadata.generation`.
+With the subresource enabled:
+
+- Writes to the main resource ignore `.status`.
+- Writes to `/status` ignore everything except `.status`.
+- `metadata.generation` increases only when the `spec` changes.
+
+The last point is what makes `observedGeneration` useful: the controller copies the `metadata.generation` it has acted on, and a status write doesn't bump the generation it just copied.
+::
 
 And finally, the part that makes the pets get hungry:
 
