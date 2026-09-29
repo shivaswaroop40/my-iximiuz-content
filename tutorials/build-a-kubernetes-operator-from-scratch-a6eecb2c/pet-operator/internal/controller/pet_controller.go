@@ -61,6 +61,10 @@ func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	// 2. Act: the ConfigMap holds the pet's "card", the Pod shows it.
 	card := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: pet.Name + "-card", Namespace: pet.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, card, func() error {
+		// An existing ConfigMap has a ResourceVersion. Never take over one that isn't ours.
+		if card.ResourceVersion != "" && !metav1.IsControlledBy(card, &pet) {
+			return fmt.Errorf("ConfigMap %s already exists and doesn't belong to %s", card.Name, pet.Name)
+		}
 		card.Data = map[string]string{"card": renderCard(&pet, mood)}
 		return controllerutil.SetControllerReference(&pet, card, r.Scheme)
 	})
@@ -107,7 +111,7 @@ func (r *PetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 	// The cache sees every Pod, but only events on Pods we own queue a reconcile,
 	// so nothing tells us when someone else's Pod goes away. Check back soon.
-	if nameTaken && (wake == 0 || wake > 10*time.Second) {
+	if nameTaken && wake > 10*time.Second {
 		wake = 10 * time.Second
 	}
 	return ctrl.Result{RequeueAfter: wake}, nil
@@ -166,7 +170,6 @@ func (r *PetReconciler) reconcilePod(ctx context.Context, pet *zoov1alpha1.Pet, 
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pet.Name,
 			Namespace: pet.Namespace,
-			Labels:    map[string]string{"zoo.example.com/pet": pet.Name},
 		},
 		Spec: corev1.PodSpec{
 			TerminationGracePeriodSeconds: ptr.To[int64](1),

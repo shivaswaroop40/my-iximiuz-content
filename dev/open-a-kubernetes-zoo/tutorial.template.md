@@ -657,7 +657,7 @@ For now, we'll use one that accepts anything (`x-kubernetes-preserve-unknown-fie
 This first version is short, so here it is in full:
 
 ```yaml [~/pet-crd/1-names.yaml]
-{{file:crd/1-names.yaml|strip-comments}}
+{{file:pet-crd/1-names.yaml|strip-comments}}
 ```
 
 Apply it:
@@ -751,7 +751,7 @@ Most lines of the specification map to a single schema keyword:
 The second version replaces the "accept anything" schema with a real one. Here's the new part:
 
 ```yaml [~/pet-crd/2-schema.yaml]
-{{excerpt:crd/2-schema.yaml#from=^          spec:#to=format: date-time}}
+{{excerpt:pet-crd/2-schema.yaml#from=^          spec:#to=format: date-time}}
 ```
 
 ::remark-box
@@ -862,13 +862,13 @@ For our Pets, we need three rules:
 Here are the two rules on `spec`:
 
 ```yaml [~/pet-crd/3-rules.yaml]
-{{excerpt:crd/3-rules.yaml#from=^            x-kubernetes-validations:#to=message: "dragons eat}}
+{{excerpt:pet-crd/3-rules.yaml#from=^            x-kubernetes-validations:#to=message: "dragons eat}}
 ```
 
 And the range rule on `feedEvery`:
 
 ```yaml [~/pet-crd/3-rules.yaml]
-{{excerpt:crd/3-rules.yaml#from=^                  feedEvery:#to=message: "feedEvery must be}}
+{{excerpt:pet-crd/3-rules.yaml#from=^                  feedEvery:#to=message: "feedEvery must be}}
 ```
 
 Apply the third version:
@@ -956,7 +956,7 @@ By the time a rule reads `self.diet.feedEvery`, the field is always there.
 Here's the `diet` block of the fourth version, with its three defaults:
 
 ```yaml [~/pet-crd/4-defaults.yaml]
-{{excerpt:crd/4-defaults.yaml#from=^              diet:#to=default: 10m}}
+{{excerpt:pet-crd/4-defaults.yaml#from=^              diet:#to=default: 10m}}
 ```
 
 Apply it, and try the lazy dragon again:
@@ -1025,9 +1025,9 @@ The schema must describe `status` too, or the API server prunes its fields in th
 The last version of the CRD adds all of that, plus the printer columns we'll look at next:
 
 ```yaml [~/pet-crd/5-status-and-columns.yaml]
-{{excerpt:crd/5-status-and-columns.yaml#from=^    subresources:#to=^      status: }}
+{{excerpt:pet-crd/5-status-and-columns.yaml#from=^    subresources:#to=^      status: }}
     ...
-{{excerpt:crd/5-status-and-columns.yaml#from=^          status:#to=EOF}}
+{{excerpt:pet-crd/5-status-and-columns.yaml#from=^          status:#to=EOF}}
 ```
 
 Apply it:
@@ -1053,7 +1053,7 @@ The `.status` field is written only through the `/status` endpoint.
 The CRD you just applied also has an `additionalPrinterColumns` list:
 
 ```yaml [~/pet-crd/5-status-and-columns.yaml]
-{{excerpt:crd/5-status-and-columns.yaml#from=^    additionalPrinterColumns:#to=jsonPath: .metadata.creationTimestamp}}
+{{excerpt:pet-crd/5-status-and-columns.yaml#from=^    additionalPrinterColumns:#to=jsonPath: .metadata.creationTimestamp}}
 ```
 
 Without it, `kubectl get pets` shows only `NAME` and `AGE`.

@@ -1,4 +1,4 @@
-dev/build-a-kubernetes-operator/pet-operator/pet-operator
+tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c/pet-operator/pet-operator
 .DS_Store
 __pycache__/
 *.pyc

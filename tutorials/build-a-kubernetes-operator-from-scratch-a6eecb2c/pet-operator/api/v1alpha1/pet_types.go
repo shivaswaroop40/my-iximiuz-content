@@ -56,7 +56,6 @@ type PetStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-// +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=pt,categories=zoo
 // +kubebuilder:printcolumn:name="Species",type=string,JSONPath=`.spec.species`
@@ -65,6 +64,7 @@ type PetStatus struct {
 // +kubebuilder:printcolumn:name="Toy",type=string,JSONPath=`.spec.toy`
 // +kubebuilder:printcolumn:name="Last Fed",type=date,JSONPath=`.spec.lastFedAt`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+// +kubebuilder:object:root=true
 type Pet struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

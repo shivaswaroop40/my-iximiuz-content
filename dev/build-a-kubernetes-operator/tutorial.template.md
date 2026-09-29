@@ -130,6 +130,9 @@ tasks:
       elif [ -z "$(kubectl get crd pets.zoo.example.com -o jsonpath='{.spec.versions[0].schema.openAPIV3Schema.properties.status.properties.observedGeneration}' 2>/dev/null)" ]; then
         echo "The API server still uses the hand-written CRD, so it drops status.observedGeneration."
         echo "Apply the generated one: kubectl apply -f ~/pet-operator/config/zoo.example.com_pets.yaml"
+      elif kubectl get configmap -n zoo mochi-card >/dev/null 2>&1 && \
+           [ -z "$(kubectl get configmap -n zoo mochi-card -o jsonpath='{.metadata.ownerReferences[?(@.controller==true)].kind}')" ]; then
+        echo "A mochi-card ConfigMap that the Pet doesn't own is in the way. Delete it: kubectl delete configmap -n zoo mochi-card"
       elif [ -z "$(kubectl get pet -n zoo mochi -o jsonpath='{.status.mood}' 2>/dev/null)" ]; then
         echo "mochi has no status yet. Is the operator running? Start it with ./pet-operator in ~/pet-operator."
       elif [ "$(kubectl get pet -n zoo mochi -o jsonpath='{.status.mood}')" = "RanAway" ]; then
@@ -398,7 +401,7 @@ The complete CRD is in `~/pet-operator/config/crd-by-hand.yaml`.
 The most interesting part is the validation rules on `spec`:
 
 ```yaml [~/pet-operator/config/crd-by-hand.yaml]
-{{excerpt:../open-a-kubernetes-zoo/crd/5-status-and-columns.yaml#from=^            x-kubernetes-validations:#to=message: "dragons eat}}
+{{excerpt:pet-operator/config/crd-by-hand.yaml#from=^            x-kubernetes-validations:#to=message: "dragons eat}}
 ```
 
 The table below goes through the rest of the file:
@@ -519,7 +522,7 @@ The loop fits in a few lines of bash, in `~/pet-operator/bash/naive-controller.s
 Every 5 seconds, it goes through all Pets and creates a Pod for each Pet that doesn't have one yet:
 
 ```bash [~/pet-operator/bash/naive-controller.sh]
-{{excerpt:bash/naive-controller.sh#from=^while true#to=^done}}
+{{excerpt:pet-operator/bash/naive-controller.sh#from=^while true#to=^done}}
 ```
 
 Open a second terminal tab (the **+** button next to the terminal tabs) and start the script there:
@@ -792,6 +795,7 @@ Then it acts. The pet's "card" goes into a ConfigMap:
 
 `CreateOrUpdate` reads the ConfigMap and applies your function to it.
 If the ConfigMap doesn't exist, it creates it. Otherwise, it sends an update only if the function changed something.
+The first check in the function makes sure the controller never takes over a ConfigMap that someone else created, the same rule it follows for Pods below.
 `SetControllerReference` adds an owner reference with `controller: true` that points to the Pet. We'll use it at the end.
 
 The Pod only mounts the card, and the controller never updates the Pod.
@@ -1275,6 +1279,7 @@ If something doesn't behave the way you expect:
 - If `mochi` never gets a Pod, check its conditions with `kubectl describe pet -n zoo mochi`. `PodNameTaken` means a Pod from the bash controller is still there. Delete it, and the operator moves `mochi` in within 10 seconds.
 - If a Pod is stuck in `Pending` or `ContainerCreating`, check `kubectl get events -n zoo`. The Pod needs to pull the `busybox:1.37` image, and the cluster needs a working networking plugin.
 - If the first checkpoint doesn't turn green and `kubectl get pet -n zoo mochi -o jsonpath='{.status.observedGeneration}'` is empty, the API server still uses the hand-written CRD, which drops that field. Apply `config/zoo.example.com_pets.yaml`.
+- If the operator logs say `ConfigMap mochi-card already exists and doesn't belong to mochi`, someone else created that ConfigMap. Delete it, and the operator creates its own.
 - If a change doesn't show up, check the operator logs. Every card update is logged, and so is every failed reconcile.
 - If the card in the Pod logs looks out of date, give the kubelet a minute or two to refresh the mounted ConfigMap. `kubectl get configmap -n zoo mochi-card -o jsonpath='{.data.card}'` shows the current card right away.
 

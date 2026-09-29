@@ -43,6 +43,9 @@ import subprocess
 broken = []
 for name, task in yaml.safe_load(fm)["tasks"].items():
     (work / f"{name}.sh").write_text(task["run"])
+    if "hintcheck" in task:
+        (work / "hints").mkdir(exist_ok=True)
+        (work / "hints" / f"{name}.sh").write_text(task["hintcheck"])
     for kind in ("run", "hintcheck", "failcheck"):
         if kind in task and subprocess.run(["bash", "-n"], input=task[kind], text=True, capture_output=True).returncode:
             broken.append(f"{name}.{kind}")
@@ -58,8 +61,13 @@ for i, (path, content) in enumerate(files, 1):
 PY
 
 # The playground's startupFiles unpack the shipped project here before the learner logs in.
-cp -R "$(dirname "$TUTORIAL")/pet-operator" "$HOME/pet-operator"
-cmp -s "$HOME/pet-operator/config/crd-by-hand.yaml" "$HERE/../open-a-kubernetes-zoo/crd/5-status-and-columns.yaml" \
+# Copy it the way labctl packs the archive: without what the folder's .labctlignore lists.
+SHIPPED="$(dirname "$TUTORIAL")/pet-operator"
+rsync -a --exclude-from="$SHIPPED/.labctlignore" --exclude=.labctlignore "$SHIPPED/" "$HOME/pet-operator/"
+for generated in api/v1alpha1/zz_generated.deepcopy.go config/zoo.example.com_pets.yaml pet-operator; do
+  [ ! -e "$HOME/pet-operator/$generated" ] || { echo "the playground would ship $generated, which the learner generates"; exit 1; }
+done
+cmp -s "$HOME/pet-operator/config/crd-by-hand.yaml" "$HERE/../../tutorials/open-a-kubernetes-zoo-9ad54ae8/pet-crd/5-status-and-columns.yaml" \
   || { echo "the shipped crd-by-hand.yaml is not zoo step 5; run dev/render.py"; exit 1; }
 # Commands this script runs on the learner's behalf: each must still be in the tutorial, verbatim.
 while IFS= read -r cmd; do
@@ -208,7 +216,7 @@ controller-gen object paths=./api/... || FAILURES=$((FAILURES + 1))
 controller-gen crd paths=./api/... output:crd:dir=config || FAILURES=$((FAILURES + 1))
 go mod tidy >/dev/null 2>&1
 if go vet ./... && go build -o pet-operator .; then echo "  ok    tutorial code builds and vets (go $(go env GOVERSION))"; else echo "  FAIL  tutorial code does not build"; exit 1; fi
-if diff -q config/zoo.example.com_pets.yaml "$HERE/pet-operator/config/zoo.example.com_pets.yaml" >/dev/null; then
+if diff -q config/zoo.example.com_pets.yaml "$SHIPPED/config/zoo.example.com_pets.yaml" >/dev/null; then
   echo "  ok    generated CRD matches the reference"; else echo "  FAIL  generated CRD differs from the reference"; FAILURES=$((FAILURES + 1)); fi
 assert "tutorial's CRD diff step shows differences" bash -c "diff <(kubectl create --dry-run=client -o yaml -f config/crd-by-hand.yaml) <(kubectl create --dry-run=client -o yaml -f config/zoo.example.com_pets.yaml) | grep -q '^>'"
 assert "  ...and the spec schema (minus descriptions/formats) is identical" python3 - config/crd-by-hand.yaml config/zoo.example.com_pets.yaml <<'PY2'
@@ -224,12 +232,28 @@ sys.exit(a != b)
 PY2
 kubectl apply -f config/zoo.example.com_pets.yaml >/dev/null; sleep 2
 
+echo "== part 3: a ConfigMap the Pet doesn't own is left alone"
+kubectl create configmap -n $N mochi-card --from-literal=card="not mochi's" >/dev/null
+start_operator
+feed mochi
+assert "the foreign card is not overwritten" is configmap mochi-card '{.data.card}' "not mochi's"
+assert "  ...or adopted" bash -c "[ -z \"\$(kubectl get configmap -n $N mochi-card -o jsonpath='{.metadata.ownerReferences}')\" ]"
+assert "  ...and the operator logs why" grep -q "ConfigMap mochi-card already exists and doesn't belong to mochi" "$WORK/operator.log"
+hint=$(bash "$WORK/hints/verify_operator_adopted.sh" 2>&1)
+echo "$hint" | grep -q "mochi-card ConfigMap that the Pet doesn't own" && echo "  ok    hint names the foreign ConfigMap" \
+  || { echo "  FAIL  hint for a foreign ConfigMap: $hint"; FAILURES=$((FAILURES + 1)); }
+stop_operator
+kubectl delete configmap -n $N mochi-card >/dev/null
+
 echo "== part 3: a leftover Pod the Pet doesn't own (the learner skipped the cleanup)"
 kubectl run mochi -n $N --image=busybox:1.37 --restart=Never -- sleep 3600 >/dev/null
 start_operator
 # mochi was adopted minutes ago and never fed; here it's still Happy, on the playground it may not be.
 feed mochi
 assert "operator reports PodNameTaken" is pet mochi '{.status.conditions[?(@.type=="AtHome")].reason}' PodNameTaken
+hint=$(bash "$WORK/hints/verify_operator_adopted.sh" 2>&1)
+echo "$hint" | grep -q "A mochi Pod that the Pet doesn't own is in the way" && echo "  ok    hint names the leftover Pod" \
+  || { echo "  FAIL  hint for PodNameTaken: $hint"; FAILURES=$((FAILURES + 1)); }
 assert "PodNameTaken warning event recorded" bash -c "kubectl get events -n $N --field-selector reason=PodNameTaken -o name | grep -q ."
 assert "the foreign Pod is left alone" bash -c "p=\$(kubectl get pod -n $N mochi -o jsonpath='{.metadata.uid}/{.metadata.ownerReferences}'); [ -n \"\$p\" ] && [ \"\${p#*/}\" = '' ]"
 check fail verify_operator_adopted

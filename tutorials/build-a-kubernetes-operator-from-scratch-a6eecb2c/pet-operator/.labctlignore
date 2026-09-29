@@ -1,0 +1,6 @@
+# Kept in the repo as references for dev/build-a-kubernetes-operator/run-tests.sh,
+# but the learner generates them, so they stay out of the playground archive.
+zz_generated.deepcopy.go
+zoo.example.com_pets.yaml
+# The binary, if you built the operator in place.
+pet-operator

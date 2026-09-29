@@ -15,7 +15,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 INDEX="$HERE/../../tutorials/open-a-kubernetes-zoo-9ad54ae8/index.md"
-REFERENCE="$HERE/crd/5-status-and-columns.yaml"
+REFERENCE="$HERE/../../tutorials/open-a-kubernetes-zoo-9ad54ae8/pet-crd/5-status-and-columns.yaml"
 WORK="$(mktemp -d)"
 kubectl config view --raw > "$WORK/kubeconfig" || { echo "no kubeconfig"; exit 1; }
 export KUBECONFIG="$WORK/kubeconfig"
