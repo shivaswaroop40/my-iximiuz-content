@@ -600,7 +600,7 @@ pet.zoo.example.com/spiky-ball created (server dry run)
 pet.zoo.example.com/whenever created (server dry run)
 ```
 
-All five would get in, including a unicorn (`sparkles`).
+All five _would_ get in, including a unicorn (`sparkles`).
 That's expected. With `x-kubernetes-preserve-unknown-fields: true`, the API server accepts whatever it receives, so nothing is validated yet.
 Let's fix that.
 

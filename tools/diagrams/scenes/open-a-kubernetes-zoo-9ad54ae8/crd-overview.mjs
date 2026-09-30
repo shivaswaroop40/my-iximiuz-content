@@ -1,11 +1,11 @@
-import { BLUE, RED, text, block, doc, cylinder, curve, cross } from "../_lib.mjs";
+import { LABEL_FONT, BLUE, RED, text, block, doc, cylinder, curve, cross } from "../_lib.mjs";
 
 // The opening diagram of the zoo tutorial: what the reader ends up with.
 export default {
   name: "crd-overview",
   out: "tutorials/open-a-kubernetes-zoo-9ad54ae8/__static__",
   elements: [
-    text(700, 0, "A Pet API that the API server enforces", { size: 44, align: "center" }),
+    text(700, 0, "A Pet API that the API server enforces", { size: 44, align: "center", font: LABEL_FONT }),
 
     // The two folders of manifests the learner starts with.
     ...doc("adopted", 20, 130, 300, 128, "~/pets/adopted/",

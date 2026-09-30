@@ -1,10 +1,10 @@
-import { INK, BLUE, SALMON, text, block, doc, cloud, person, curve } from "../_lib.mjs";
+import { LABEL_FONT, INK, BLUE, SALMON, text, block, doc, cloud, person, curve } from "../_lib.mjs";
 
 export default {
   name: "operator-overview",
   out: "tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c/__static__",
   elements: [
-    text(660, 0, "A Pet Operator", { size: 48, align: "center" }),
+    text(660, 0, "A Pet Operator", { size: 48, align: "center", font: LABEL_FONT }),
 
     ...person(80, 190),
     curve([[112, 250], [190, 240], [258, 280]], { color: INK }),

@@ -1,11 +1,11 @@
-import { INK, BLUE, SALMON, RED, MUTED, text, block, doc, cloud, bin, cross, curve } from "../_lib.mjs";
+import { LABEL_FONT, INK, BLUE, SALMON, RED, MUTED, text, block, doc, cloud, bin, cross, curve } from "../_lib.mjs";
 
 export default {
   name: "ownership-gc",
   out: "tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c/__static__",
   elements: [
     // Left: the bash controller leaves orphans
-    text(200, 0, "bash controller", { size: 32, align: "center" }),
+    text(200, 0, "bash controller", { size: 32, align: "center", font: LABEL_FONT }),
     ...doc("goldie", 70, 110, 200, 110, "Pet goldie", "species: dog", { size: 16 }),
     ...cross(80, 120, 180, 90),
     text(170, 70, "kubectl delete pet goldie", { size: 17, align: "center", color: MUTED }),
@@ -17,7 +17,7 @@ export default {
     curve([[480, -10], [485, 300], [478, 620]], { color: MUTED, head: false, dashed: true, strokeWidth: 1 }),
 
     // Right: the operator's children are garbage-collected
-    text(850, 0, "pet-operator", { size: 32, align: "center" }),
+    text(850, 0, "pet-operator", { size: 32, align: "center", font: LABEL_FONT }),
     ...doc("smaug", 560, 110, 200, 110, "Pet smaug", "species: dragon", { size: 16 }),
     ...cross(570, 120, 180, 90),
     text(660, 70, "kubectl delete pet smaug", { size: 17, align: "center", color: MUTED }),
