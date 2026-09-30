@@ -19,9 +19,9 @@ tagz:
 - go
 
 createdAt: 2026-09-26
-updatedAt: 2026-09-28
+updatedAt: 2026-09-30
 
-cover: __static__/cover.png
+cover: __static__/operator-overview.png
 
 playground:
   name: k8s-omni

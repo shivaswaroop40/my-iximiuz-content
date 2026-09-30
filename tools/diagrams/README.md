@@ -43,7 +43,9 @@ To go back to the generated version, delete the `.excalidraw` file and rebuild.
 Pen on graph paper, after the hand-drawn diagrams on iximiuz Labs:
 
 - **Faint 20px grid** behind everything (added at export time, so the `.excalidraw` files stay clean).
-- **Thin black ink**, Virgil hand-lettering. Big free-floating titles, no boxes around labels.
+- **Thin black ink**, with two fonts: the names of things (block labels, document titles, the text inside a block)
+  use Nunito (`LABEL_FONT`), a regular font; notes, callouts, curve labels and titles use Virgil hand-lettering.
+  Keep the handwriting for what a person would scribble next to the drawing.
 - **Objects are drawn, not boxed**: `block()` for things that run (API server, controller, Pod) as 3D blocks
   with a light top and a gray side; `doc()` for Kubernetes objects you can `cat` (a sheet with a folded
   corner and mono-spaced YAML); `cylinder()` for etcd; `bin()` for the garbage collector; `person()` for you.
