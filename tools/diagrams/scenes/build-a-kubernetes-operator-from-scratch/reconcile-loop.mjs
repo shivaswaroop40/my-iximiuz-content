@@ -1,4 +1,4 @@
-import { INK, BLUE, SALMON, text, block, cloud, curve } from "../_lib.mjs";
+import { INK, BLUE, SALMON, LABEL_FONT, text, block, cloud, curve } from "../_lib.mjs";
 
 export default {
   name: "reconcile-loop",
@@ -28,7 +28,7 @@ export default {
       "1. observe: get the Pet\n     from the cache\n" +
       "2. compute the mood from\n     lastFedAt, feedEvery, now\n" +
       "3. act: CreateOrUpdate the card,\n     create or delete the Pod\n" +
-      "4. report: write status, return\n     RequeueAfter = time until\n     the mood changes", { size: 19 }),
+      "4. report: write status, return\n     RequeueAfter = time until\n     the mood changes", { size: 19, font: LABEL_FONT }),
 
     // The timer loop
     curve([[955, 452], [950, 570], [500, 600], [-40, 560], [-30, 330], [-4, 318]]),
