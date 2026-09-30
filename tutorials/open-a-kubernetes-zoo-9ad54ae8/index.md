@@ -492,13 +492,12 @@ By the end, the API server should accept every Pet in `adopted/` and reject ever
 Let's see where we stand. Right now, `kubectl` can't even send them, because the API server has never heard of a `Pet`:
 
 ```sh
-kubectl apply --dry-run=server -f ~/pets/adopted/
+kubectl apply --dry-run=server -f ~/pets/adopted/mochi.yaml
 ```
 
 ```text
-resource mapping not found for name: "mochi" namespace: "zoo" from "/home/laborant/pets/adopted/mochi.yaml": no matches for kind "Pet" in version "zoo.example.com/v1alpha1"
+error: resource mapping not found for name: "mochi" namespace: "zoo" from "/home/laborant/pets/adopted/mochi.yaml": no matches for kind "Pet" in version "zoo.example.com/v1alpha1"
 ensure CRDs are installed first
-...
 ```
 
 ::remark-box
