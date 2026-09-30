@@ -444,7 +444,7 @@ It still has a couple of rules that are hard to express in a schema, and those r
 We'll build the CRD one layer at a time.
 All five versions of it are already in the `~/pet-crd` folder of the playground, so you don't have to type any YAML.
 In the tutorial, I'll show only what's new in each version, and you can open the full files in the IDE tab.
-After every change, we'll send the same set of valid and invalid Pets to the API server and see which ones get in.
+After every change, we'll send the same set of valid and invalid Pets to the API server and see which ones would get in.
 
 ## Prerequisites
 
@@ -621,7 +621,7 @@ pet.zoo.example.com/whenever created (server dry run)
 ```
 
 All five would get in, including a unicorn (`sparkles`).
-That's expected. With `x-kubernetes-preserve-unknown-fields: true`, the API server stores whatever it receives, so nothing is validated yet.
+That's expected. With `x-kubernetes-preserve-unknown-fields: true`, the API server accepts whatever it receives, so nothing is validated yet.
 Let's fix that.
 
 ## Adding a schema
@@ -852,7 +852,7 @@ spec: Invalid value: "object": no such key: diet evaluating rule: dragons eat at
 
 This Pet has no `diet` block, so the rule failed while trying to read `self.diet.feedEvery`.
 The Pet is rejected, but not for the reason we want.
-A cat without a `diet` gets in for a lucky reason: for a cat, `self.species != 'dragon'` is `true`,
+A cat without a `diet` would get in for a lucky reason: for a cat, `self.species != 'dragon'` is `true`,
 and when one side of `||` is `true`, CEL ignores an error on the other side.
 The specification says that a Pet without a diet eats snacks every 10 minutes, so let's teach the CRD that too.
 
