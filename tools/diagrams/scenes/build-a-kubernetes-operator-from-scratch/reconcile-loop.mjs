@@ -4,7 +4,7 @@ export default {
   name: "reconcile-loop",
   out: "tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c/__static__",
   elements: [
-    text(640, 0, "What wakes the controller up", { size: 40, align: "center" }),
+    text(640, 0, "What wakes the controller up", { size: 40, align: "center", font: LABEL_FONT }),
 
     // Triggers: every one of them just drops a name into the queue
     text(0, 100, "a Pet is created,\nchanged or deleted", { size: 20 }),
