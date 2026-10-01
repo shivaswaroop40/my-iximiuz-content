@@ -12,10 +12,11 @@ Source for my [iximiuz Labs](https://labs.iximiuz.com/a/shiva-swaroop) content.
 | `dev/<slug>/` | Tutorial templates and test harnesses (not published) |
 | `tools/diagrams/` | Excalidraw-style diagram sources and renderer (see its README) |
 | `docs/` | Research and roadmaps |
+| `AGENTS.md` | Rules and the pre-push checklist for anyone (or any agent) editing content |
 
 Folders are named after the content's name on Labs, including its hash suffix, so
-`labctl content push <kind> <slug> --dir <kinds>/<slug> --force` publishes a folder as-is and
-`labctl content pull` refreshes it.
+`dev/push.py <kinds>/<slug>` publishes a folder as-is (lint, pack the shipped archives, push, verify)
+and `labctl content pull` refreshes it. See `AGENTS.md` for the pre-push checklist.
 
 ## Tutorials
 
@@ -39,6 +40,7 @@ A `kind` cluster works for both and runs real Pods, which the operator tutorial 
 Everything is currently tested against Kubernetes v1.37, Go 1.26.8, controller-runtime v0.25.1 and controller-tools v0.22.0.
 
 ```sh
+dev/lint.py                                     # every folder: what learners see, startupFiles, cover, task scripts
 dev/open-a-kubernetes-zoo/run-tests.sh          # zoo tutorial: each CRD step passes exactly the expected checks
 dev/build-a-kubernetes-operator/run-tests.sh    # operator tutorial: builds the shipped project and walks every step
 ```
@@ -49,7 +51,7 @@ Each tutorial ships its files to the playground, and the shipped files next to `
   `__static__/pet-api.txt` (the spec, unpacked as `~/pet-api.md`);
 - operator: `pet-operator/` (the Go project, the hand-written CRD and the bash controller).
 
-`labctl content push` packs each folder into `__static__/<folder>.tar.gz`, which the `startupFiles` in the
+`dev/push.py` packs each folder into `__static__/<folder>.tar.gz`, which the `startupFiles` in the
 front matter unpack into the learner's home directory. The tutorial's `.labctlignore` keeps the raw folders out
 of the push. Each folder's own `.labctlignore` keeps `.DS_Store` out of the archive, and `pet-operator/`'s also
 keeps out what the learner generates (`zz_generated.deepcopy.go`, the generated CRD); those stay in the repo as

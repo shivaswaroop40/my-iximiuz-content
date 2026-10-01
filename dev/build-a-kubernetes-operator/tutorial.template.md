@@ -19,7 +19,7 @@ tagz:
 - go
 
 createdAt: 2026-09-26
-updatedAt: 2026-09-30
+updatedAt: 2026-10-01
 
 cover: __static__/operator-overview.png
 
@@ -30,6 +30,12 @@ playground:
     source: __static__/pet-operator.tar.gz
     extract: true
     owner: laborant
+    machines: [dev-machine]
+  - path: /etc/default/code-server
+    content: |
+      CODE_SERVER_PATH=/home/laborant/pet-operator
+    owner: root
+    mode: "644"
     machines: [dev-machine]
 
 tasks:
