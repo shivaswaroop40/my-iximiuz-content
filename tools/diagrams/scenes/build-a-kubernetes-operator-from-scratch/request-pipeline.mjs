@@ -1,4 +1,4 @@
-import { BLUE, SALMON, RED, text, block, doc, cloud, cylinder, curve } from "../_lib.mjs";
+import { BLUE, SALMON, RED, REGULAR, text, block, doc, cloud, cylinder, curve } from "../_lib.mjs";
 
 const Y = 150, W = 170, H = 100;
 const x = (i) => 170 + i * 215;
@@ -13,13 +13,13 @@ export default {
   elements: [
     text(700, 0, "What happens to a Pet on its way to etcd", { size: 40, align: "center" }),
 
-    ...doc("pet", 0, 140, 125, 120, "Pet", "species:\n  dragon", { size: 15 }),
-    ...block("decode", x(0), Y, W, H, "decode,\nprune unknown\nfields", { size: 19 }),
-    ...block("default", x(1), Y, W, H, "defaulting", { size: 22 }),
-    ...block("mutate", x(2), Y, W, H, "mutating\nwebhooks", { size: 20, dashed: true }),
-    ...block("validate", x(3), Y, W, H, "schema\n+ CEL rules", { size: 22 }),
-    ...block("vwh", x(4), Y, W, H, "validating\nwebhooks", { size: 20, dashed: true }),
-    ...cylinder("etcd", x(5), Y - 10, 120, 130, "etcd"),
+    ...doc("pet", 0, 140, 125, 120, "Pet", "species:\n  dragon", { size: 15, titleFont: REGULAR }),
+    ...block("decode", x(0), Y, W, H, "decode,\nprune unknown\nfields", { size: 19, font: REGULAR }),
+    ...block("default", x(1), Y, W, H, "defaulting", { size: 22, font: REGULAR }),
+    ...block("mutate", x(2), Y, W, H, "mutating\nwebhooks", { size: 20, font: REGULAR, dashed: true }),
+    ...block("validate", x(3), Y, W, H, "schema\n+ CEL rules", { size: 22, font: REGULAR }),
+    ...block("vwh", x(4), Y, W, H, "validating\nwebhooks", { size: 20, font: REGULAR, dashed: true }),
+    ...cylinder("etcd", x(5), Y - 10, 120, 130, "etcd", { font: REGULAR }),
     text(mid(2), Y + H + 10, "(none here)", { size: 17, align: "center" }),
     text(mid(4), Y + H + 10, "(none here)", { size: 17, align: "center" }),
 

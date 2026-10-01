@@ -513,6 +513,15 @@ The request goes through the full API server pipeline, including defaulting and 
 Let's start with the smallest CRD that works.
 It tells the API server what the new resource is called, which versions it has, and whether it lives in a namespace.
 One thing to keep in mind: the CRD itself must be named `<plural>.<group>`.
+Every version also needs a schema.
+For now, we'll use one that accepts anything (`x-kubernetes-preserve-unknown-fields: true`) and tighten it in the next step.
+This first version is short, so here it is in full:
+
+```yaml [~/pet-crd/1-names.yaml]
+{{file:pet-crd/1-names.yaml|strip-comments}}
+```
+
+Here's where each name shows up:
 
 | Field | Value | Where it shows up |
 |-------|-------|-------------------|
@@ -522,14 +531,6 @@ One thing to keep in mind: the CRD itself must be named `<plural>.<group>`.
 | `names.shortNames` | `pt` | `kubectl get pt` |
 | `names.categories` | `zoo` | `kubectl get zoo`, similar to how `kubectl get all` works |
 | `scope` | `Namespaced` | Pets live in namespaces, like Pods |
-
-Every version also needs a schema.
-For now, we'll use one that accepts anything (`x-kubernetes-preserve-unknown-fields: true`) and tighten it in the next step.
-This first version is short, so here it is in full:
-
-```yaml [~/pet-crd/1-names.yaml]
-{{file:pet-crd/1-names.yaml|strip-comments}}
-```
 
 Apply it:
 
@@ -599,8 +600,8 @@ pet.zoo.example.com/spiky-ball created (server dry run)
 pet.zoo.example.com/whenever created (server dry run)
 ```
 
-All five get in, including a unicorn (`sparkles`).
-That's expected. With `x-kubernetes-preserve-unknown-fields: true`, the API server stores whatever it receives, so nothing is validated yet.
+All five would get in, including a unicorn (`sparkles`).
+That's expected. With `x-kubernetes-preserve-unknown-fields: true`, the API server would store whatever it receives, so nothing is validated yet.
 Let's fix that.
 
 ## Adding a schema
@@ -609,6 +610,12 @@ Now that the Pet has a name, let's describe its fields.
 A CRD schema is written in OpenAPI v3.
 Kubernetes requires it to be **structural**.
 Every field must have a `type`, and the fields of an object must be listed under `properties`, unless the schema explicitly allows unknown fields, as the first version did.
+The second version replaces the "accept anything" schema with a real one. Here's the new part:
+
+```yaml [~/pet-crd/2-schema.yaml]
+{{excerpt:pet-crd/2-schema.yaml#from=^          spec:#to=format: date-time}}
+```
+
 Most lines of the specification map to a single schema keyword:
 
 | The specification says | Schema keyword |
@@ -618,12 +625,6 @@ Most lines of the specification map to a single schema keyword:
 | At most 20 characters | `maxLength` |
 | A number followed by s, m or h | `pattern` |
 | `lastFedAt` is a date-time | `format: date-time` |
-
-The second version replaces the "accept anything" schema with a real one. Here's the new part:
-
-```yaml [~/pet-crd/2-schema.yaml]
-{{excerpt:pet-crd/2-schema.yaml#from=^          spec:#to=format: date-time}}
-```
 
 ::remark-box
 ---
@@ -650,7 +651,7 @@ Sending valid Pets to the API server (server-side dry run)...
 The API server accepts all valid Pets.
 ::
 
-The adopted Pets still get in:
+The adopted Pets would still get in:
 
 ```sh
 kubectl apply --dry-run=server -f ~/pets/adopted/
@@ -677,7 +678,7 @@ Error from server (Invalid): error when creating "/home/laborant/pets/turned-awa
 Error from server (Invalid): error when creating "/home/laborant/pets/turned-away/whenever.yaml": Pet.zoo.example.com "whenever" is invalid: spec.diet.feedEvery: Invalid value: "whenever": spec.diet.feedEvery in body should match '^[0-9]+(s|m|h)$'
 ```
 
-The other three still get in, because they break rules that are hard or impossible to express with OpenAPI keywords alone:
+The other three would still get in, because they break rules that are hard or impossible to express with OpenAPI keywords alone:
 
 - `spiky-ball` is a cactus with a toy. A `toy` is valid on its own, and only invalid in combination with `species: cactus`.
 - `snacky-dragon` wants to be fed every `15m`. The value matches the pattern, but dragons must wait at least an hour.

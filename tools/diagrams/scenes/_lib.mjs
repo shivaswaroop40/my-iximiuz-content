@@ -11,6 +11,7 @@ export const MUTED = "#868e96";
 const FACE_TOP = "#f1f3f5";
 const FACE_SIDE = "#dee2e6";
 const FONT = 1; // Virgil, Excalidraw's original hand-drawn font
+export const REGULAR = 6; // Nunito: for labels on blocks and documents, so only notes are handwritten
 
 const shapes = new Map(); // id -> { x, y, w, h } of the front face, for anchoring curves
 
@@ -48,7 +49,7 @@ export function block(id, x, y, w, h, label, o = {}) {
       strokeStyle: o.dashed ? "dashed" : "solid" },
   ];
   if (label) els.push(text(x + w / 2, y + (o.labelY ?? h / 2 - (label.split("\n").length * (o.size || 22) * 1.25) / 2), label,
-    { size: o.size || 22, align: "center", color: o.color }));
+    { size: o.size || 22, align: "center", color: o.color, font: o.font }));
   return els;
 }
 
@@ -60,13 +61,13 @@ export function doc(id, x, y, w, h, title, body = "", o = {}) {
     { ...base, type: "rectangle", id, x, y, width: w, height: h, backgroundColor: "transparent", strokeColor: "transparent" },
     poly([[x, y], [x + w - f, y], [x + w, y + f], [x + w, y + h], [x, y + h], [x, y]], { fill: "#ffffff", color: o.color }),
     poly([[x + w - f, y], [x + w - f, y + f], [x + w, y + f]], { fill: FACE_SIDE, color: o.color }),
-    text(x + 16, y + 12, title, { size: o.titleSize || 22, color: o.color }),
+    text(x + 16, y + 12, title, { size: o.titleSize || 22, color: o.color, font: o.titleFont }),
     ...(body ? [text(x + 16, y + 12 + (o.titleSize || 22) * 1.5, body, { size: o.size || 17, font: o.bodyFont || 3, color: o.bodyColor || o.color })] : []),
   ];
 }
 
 // A database cylinder (etcd).
-export function cylinder(id, x, y, w, h, label) {
+export function cylinder(id, x, y, w, h, label, o = {}) {
   const e = 26;
   shapes.set(id, { x, y, w, h, d: 0 });
   const bottom = [];
@@ -81,7 +82,7 @@ export function cylinder(id, x, y, w, h, label) {
     poly([[x + w, y + e / 2], [x + w, y + h - e / 2]]),
     poly(bottom, { smooth: true }),
     { ...base, type: "ellipse", x, y, width: w, height: e, backgroundColor: FACE_TOP },
-    text(x + w / 2, y + h / 2 - 8, label, { size: 22, align: "center" }),
+    text(x + w / 2, y + h / 2 - 8, label, { size: 22, align: "center", font: o.font }),
   ];
 }
 
