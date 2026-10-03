@@ -1,0 +1,36 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: keeper
+  namespace: kagent
+spec:
+  description: Read-only cluster helper.
+  type: Declarative
+  declarative:
+    runtime: go
+    systemMessage: You look at the cluster and report what you see. You never change anything.
+    modelConfig: default-model-config
+    tools:
+    - type: McpServer
+      mcpServer:
+        name: kagent-tool-server
+        kind: RemoteMCPServer
+        apiGroup: kagent.dev
+        toolNames: [k8s_get_resources, k8s_get_pod_logs]
+---
+# An agent whose only tool is another agent (A2A under the hood).
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: manager
+  namespace: kagent
+spec:
+  description: Delegates questions to the keeper.
+  type: Declarative
+  declarative:
+    runtime: go
+    systemMessage: You answer by asking the keeper agent.
+    modelConfig: default-model-config
+    tools:
+    - type: Agent
+      agent: {name: keeper}

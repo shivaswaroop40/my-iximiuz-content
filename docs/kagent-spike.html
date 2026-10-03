@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spike: kagent and Agent Sandbox on iximiuz Labs</title>
+<style>
+:root { --bg:#f7f8f6; --fg:#1d2522; --muted:#5f6b66; --line:#d4dbd7; --panel:#ffffff; --code:#eef1ef; --accent:#2f6f63; }
+@media (prefers-color-scheme: dark) { :root { --bg:#141917; --fg:#e2e9e5; --muted:#9aa7a1; --line:#2f3a35; --panel:#1b221f; --code:#222b27; --accent:#7cc4b4; color-scheme: dark; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+main { max-width: 860px; margin: 0 auto; padding: 40px 20px 72px; }
+h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 .6em; text-wrap: balance; }
+h2 { font-size: 1.4rem; margin: 2.2em 0 .6em; padding-top: .8em; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 1.8em 0 .5em; }
+p, li { max-width: 72ch; }
+a { color: var(--accent); }
+code { font: .88em ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code); padding: .1em .35em; border-radius: 4px; }
+pre { background: var(--code); padding: 14px 16px; border-radius: 8px; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+.table-wrap { overflow-x: auto; margin: 1em 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: .94rem; }
+th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; background: var(--code); }
+tr:last-child td { border-bottom: 0; }
+.meta { color: var(--muted); font-size: .9rem; margin-bottom: 2em; }
+</style>
+</head>
+<body>
+<main>
+<p class="meta">Generated from kagent-spike.md</p>
+<h1>Spike: kagent and Agent Sandbox on iximiuz Labs</h1>
+<p>Run on 2026-10-01 on a stock <code>k8s-omni</code> playground (Kubernetes v1.37.0, containerd 2.3.4, flannel,
+Firecracker backend; dev-machine 2 CPU/4 GB, cplane-01 4 CPU/4 GB, two workers at 2 CPU/4 GB).
+Every manifest and script used is in <code>dev/spikes/kagent/</code>.</p>
+<h2>Verdict</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Idea</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>kagent tutorial on stock k8s-omni, no API key</td>
+<td><strong>Go</strong>, with a stub model and a StorageClass</td>
+</tr>
+<tr>
+<td>kagent challenge: debug broken agents</td>
+<td><strong>Go</strong>, four distinct failure modes found</td>
+</tr>
+<tr>
+<td>kagent challenge: lock down the tool server</td>
+<td><strong>Go, strongest idea</strong>. Needs Calico or Cilium for NetworkPolicy</td>
+</tr>
+<tr>
+<td>Agent Sandbox tutorial with gVisor</td>
+<td><strong>Go</strong>. Works without nested virtualization</td>
+</tr>
+<tr>
+<td>Real local model (Ollama)</td>
+<td>Not tested. The stub covers everything the checks need</td>
+</tr>
+</tbody>
+</table></div>
+<h2>Versions</h2>
+<ul>
+<li>kagent <strong>v0.10.2</strong> (stable, 2026-09-23). <strong>v1.0.0 is in alpha</strong> (alpha6 on 2026-09-30) and changes the API
+  group from <code>kagent.dev</code> to <code>api.kagent.dev</code>, replaces <code>ToolServer</code>/<code>Memory</code>/<code>SandboxAgent</code> with <code>Harness</code> and
+  <code>SandboxTemplate</code>, and adds <code>AgentTemplate</code>. A tutorial written against v0.10.2 will need a rewrite when v1
+  ships. Pin v0.10.2 now and plan a v1 update, or wait for v1.0.0 GA.</li>
+<li>Agent Sandbox <strong>v1.0.4</strong> (<code>agents.x-k8s.io/v1beta1</code>).</li>
+<li>gVisor <strong>release-20260928.0</strong>, from the apt repo. The loose-binary URLs in older guides now 404.</li>
+<li>local-path-provisioner: used v0.0.32 in the spike, pin v0.0.37 (latest) in content.</li>
+</ul>
+<h2>kagent</h2>
+<h3>Install</h3>
+<p><code>helm install</code> of <code>kagent-crds</code> and <code>kagent</code> (OCI, <code>ghcr.io/kagent-dev/kagent/helm/*</code>) takes about 3 s; images pull
+in well under a minute.</p>
+<ul>
+<li><strong>Gotcha 1: no StorageClass on k8s-omni.</strong> The bundled Postgres needs a PVC, stays Pending, and the controller
+  crash-loops on <code>database migration failed ... connection refused</code>. The chart has no emptyDir option. Fix:
+  local-path-provisioner as the default StorageClass, installed before kagent.</li>
+<li>The bundled agents (k8s, istio, cilium x3, helm, argo, promql, observability, kgateway) and grafana-mcp are on by
+  default. Turn them all off (<code>kagent-values.yaml</code>) so the learner builds their own agent and the cluster stays light.</li>
+<li>With kagent, the stub model, Agent Sandbox and one sandbox running, the busiest worker had 1.2 GiB of 3.6 GiB
+  requested and about 700 MiB actually used. Each agent Pod requests 100m/384Mi. Plenty of room.</li>
+</ul>
+<h3>What the controller builds</h3>
+<p><code>kubectl apply</code> of a 15-line <code>Agent</code> (<code>keeper.yaml</code>) produced, within 3 s, a Deployment, Service, ServiceAccount
+and a Secret holding <code>config.json</code> and <code>agent-card.json</code>, all owned by the Agent. The Agent reports <code>Accepted</code> and
+<code>Ready</code> conditions; <code>Ready=True</code> arrived after 10 s. <code>config.json</code> is the compiled agent: the model endpoint and the
+filtered list of MCP tools. This is a direct continuation of the operator tutorial (an operator turning a custom
+resource into Deployments and reporting conditions).</p>
+<h3>The stub model</h3>
+<p>kagent's OpenAI provider takes a <code>baseUrl</code>, so a ~100-line Python server (<code>stub-llm.py</code>) can stand in for a model.
+kagent v0.10.2 (Go runtime, <code>OpenAI/Go 3.46.0</code>) only ever sent <strong>non-streaming <code>POST /v1/chat/completions</code></strong> with
+<code>tools</code> and <code>tool_choice: auto</code>, plus a built-in <code>ask_user</code> tool it adds to every agent. No <code>/models</code> call, no
+streaming. The stub requires nothing more than that.</p>
+<p>A full round trip worked: <code>curl</code> to the controller's A2A endpoint
+(<code>/api/a2a/&lt;ns&gt;/&lt;agent&gt;/</code>, JSON-RPC <code>message/send</code>), agent asks the stub, stub requests <code>k8s_get_resources</code>, the
+tool server runs it, the stub summarizes, the answer comes back as a completed A2A task. Same answer every run, so
+task checks can assert on it. The stub's own request log is also a great teaching tool: it shows exactly what the
+agent sends a model.</p>
+<p>For the published version, rewrite the stub in Go (the job asks for Go) and give it pet-aware rules if the tutorial
+reuses the zoo.</p>
+<h3>Calling an agent</h3>
+<p>Everything goes through the controller's HTTP server (<code>svc/kagent-controller</code>, port 8083); from the dev machine,
+<code>kubectl -n kagent port-forward svc/kagent-controller 8083</code>. Tested:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Way in</th>
+<th>How</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A2A over HTTP</td>
+<td><code>POST /api/a2a/&lt;ns&gt;/&lt;agent&gt;/</code>, JSON-RPC <code>message/send</code> with a non-empty <code>messageId</code></td>
+<td>Works. Returns a task with <code>status.state</code> and <code>artifacts</code></td>
+</tr>
+<tr>
+<td>MCP</td>
+<td><code>POST /mcp</code> on the controller: tools <code>list_agents</code> and <code>invoke_agent</code> (<code>{"agent":"kagent/keeper","task":"..."}</code>)</td>
+<td>Works. Any MCP client (Claude Code, Cursor) can call kagent agents</td>
+</tr>
+<tr>
+<td>Another agent</td>
+<td><code>tools: [{type: Agent, agent: {name: keeper}}]</code></td>
+<td>Works. The calling agent sees the other as a tool named <code>kagent__NS__keeper</code> with one <code>request</code> argument</td>
+</tr>
+<tr>
+<td>kagent CLI v0.10.2</td>
+<td><code>kagent invoke --agent keeper --task ...</code></td>
+<td><strong>Fails</strong>: it sends <code>"messageId": ""</code>, the agent rejects it, and the error surfaces as <code>failed to decode response ... errordetails.Typed</code>. The same request with any <code>messageId</code> works. An upstream bug, so the tutorial uses <code>curl</code></td>
+</tr>
+<tr>
+<td>UI</td>
+<td><code>kubectl -n kagent port-forward svc/kagent-ui 8080:8080</code></td>
+<td>Not tried in the spike</td>
+</tr>
+</tbody>
+</table></div>
+<h3>Failure modes (<code>broken.yaml</code>)</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Break</th>
+<th>Agent says</th>
+<th>Where the truth is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>B1 <code>ModelConfig</code> names a missing key Secret</td>
+<td><code>Accepted=True</code>, <code>Ready=False DeploymentNotReady</code></td>
+<td>Pod in <code>CreateContainerConfigError</code>; the <strong>ModelConfig</strong> has <code>Accepted=False ... Secret "no-such-secret" not found</code>. Two levels deep.</td>
+</tr>
+<tr>
+<td>B2 Agent names a missing <code>ModelConfig</code></td>
+<td><code>Accepted=False ReconcileFailed: ... ModelConfig "no-such-model" not found</code></td>
+<td>Right there. The easy one.</td>
+</tr>
+<tr>
+<td>B3 <code>toolNames</code> has a tool the server doesn't have</td>
+<td><strong><code>Ready=True</code></strong></td>
+<td>Silent. The agent runs with only <code>ask_user</code>; the model is never offered the tool. Only the agent's startup log (<code>tools: [k8s_get_pets]</code>) or the model's request log show it.</td>
+</tr>
+<tr>
+<td>B4 <code>RemoteMCPServer</code> URL is wrong</td>
+<td><code>Ready=False DeploymentNotReady</code></td>
+<td>Pod Running but never Ready: it hangs connecting to the MCP server before it serves the agent card, so the readiness probe gets <code>connection refused</code>. No error in the log.</td>
+</tr>
+</tbody>
+</table></div>
+<p>B3 and B4 make a good medium/hard challenge; B1 and B2 are the warm-up.</p>
+<h3>Security finding: the tool server is cluster-admin and unauthenticated</h3>
+<ul>
+<li><code>kagent-tools</code> runs as a ServiceAccount bound to <code>kagent-tools-cluster-admin-role</code>: it can read Secrets, delete
+  Deployments and create ClusterRoleBindings.</li>
+<li>The agent's own ServiceAccount can do nothing (<code>can-i get pods</code>: no).</li>
+<li>So an agent's <code>toolNames</code> list is the only thing making it "read-only", and it's enforced inside the agent
+  runtime, not by the server.</li>
+<li>A Pod in an unrelated namespace, with no credentials, ran the MCP handshake against
+  <code>http://kagent-tools.kagent:8084/mcp</code> and listed Secrets in <code>kagent</code>.</li>
+</ul>
+<p>This is the default install, not a bug in the spike setup. But it's the best challenge here: "agents are
+going to production; make the tool server safe", solved with a scoped ClusterRole for the tool server and a
+NetworkPolicy that only admits agent Pods. Flannel (k8s-omni's default) doesn't enforce NetworkPolicy, so the
+challenge starts k8s-omni with Calico or Cilium (a start-time option on k8s-omni). Not yet tested on those.</p>
+<h2>Agent Sandbox</h2>
+<ul>
+<li>gVisor installs on both workers in about 40 s (<code>install-gvisor.sh</code>, run as root) and runs Pods with <strong>no KVM</strong>:
+  <code>uname -r</code> is <code>4.19.0-gvisor</code>, dmesg shows <code>Starting gVisor...</code>. The nested-virtualization recipe being disabled
+  since 2026-07-13 doesn't matter for gVisor. Kata stays out.</li>
+<li>Agent Sandbox v1.0.4 (<code>sandbox-with-extensions.yaml</code>) installs <code>Sandbox</code> and <code>SandboxClaim</code> and is up in 2 s.</li>
+<li><strong>Gotcha 2: k8s-omni's control plane takes workloads and has no gVisor.</strong> The first Sandbox landed on cplane-01
+  and failed with <code>unable to get OCI runtime</code>. Fix: label the gVisor nodes and set <code>scheduling.nodeSelector</code> on
+  the RuntimeClass (<code>sandbox.yaml</code>). That's the right way to do it anyway, and worth a paragraph in the tutorial.</li>
+<li>A <code>Sandbox</code> with a PVC workspace was Ready in 6 s. <code>operatingMode: Suspended</code> deleted the Pod and kept the PVC;
+  <code>Running</code> brought it back with the workspace file intact. That's the feature the tutorial would be built around.</li>
+</ul>
+<h2>How kagent and Agent Sandbox meet</h2>
+<p>kagent v0.10.2 already has a <code>SandboxAgent</code> resource and a "substrate" worker pool with <code>sandboxClass: gvisor</code>;
+v1 turns this into <code>SandboxTemplate</code> and <code>Harness</code>. Not explored in this spike: it's off by default and in flux.
+A later piece could connect the two once v1 settles.</p>
+<h2>Proposed content, in order</h2>
+<ol>
+<li><strong>Tutorial: How kagent Works: Running an AI Agent as a Kubernetes Resource.</strong> Install (with the StorageClass
+   step), stub model, one Agent, trace what the controller builds, talk to it over A2A with <code>curl</code>, read the stub's
+   request log to see what an agent sends a model. Optional section: swap in a real <code>ModelConfig</code> with your own key.</li>
+<li><strong>Challenge: Fix the Broken Agents</strong> (medium). B1 to B4 in one namespace; checks use the A2A endpoint and the
+   stub's log.</li>
+<li><strong>Challenge: Lock Down the Agent Tool Server</strong> (hard). Scoped RBAC plus NetworkPolicy, on Calico or Cilium.
+   Checks: an outsider Pod can't reach the MCP port, the tool server can't read Secrets, the keeper agent still works.</li>
+<li><strong>Tutorial: Isolating Agent Code with Agent Sandbox and gVisor.</strong> RuntimeClass with scheduling, Sandbox,
+   suspend and resume, link Ivan's Firecracker course for the VM side.</li>
+</ol>
+<h2>Open questions</h2>
+<ul>
+<li>Ollama with a small model on a worker: not tested. Only worth it if a real model adds something the stub can't.</li>
+<li>Calico or Cilium on k8s-omni plus kagent: does everything still fit, and does a NetworkPolicy behave as expected?</li>
+<li>kagent v1.0.0 GA date: decides whether to write the tutorial against v0.10.2 now or wait.</li>
+<li>Docker Hub: the bundled Postgres pulls <code>docker.io/library/postgres</code>. Shared Labs IPs have hit Docker Hub rate
+  limits before, so point it at <code>public.ecr.aws/docker/library/postgres</code> in the published values.</li>
+</ul>
+<h2>Round 2: integrations (2026-10-01)</h2>
+<p>Same playground, kagent v0.10.2. Artifacts: <code>dev/spikes/kagent/alert-bridge/</code>, <code>ci-check.sh</code>, <code>real-model.yaml</code>.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Integration</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Claude Code → kagent over MCP</strong></td>
+<td><strong>Works.</strong> <code>claude -p --mcp-config</code> pointing at the controller's <code>/mcp</code> (via <code>labctl port-forward</code>) listed the agents and asked <code>kagent/keeper</code> a question; 4 turns, $0.03. <code>invoke_agent</code> also takes a <code>context_id</code> for multi-turn. MCP Inspector CLI works too. <code>list_agents</code> only returns Ready agents</td>
+</tr>
+<tr>
+<td><strong>Alertmanager → alert bridge → agent → chat</strong></td>
+<td><strong>Works.</strong> A 170-line stdlib Go service (<code>alert-bridge/main.go</code>, run with <code>go run</code> from a ConfigMap) takes an Alertmanager v4 webhook, answers 202 at once, asks the agent with <code>contextId = alert-&lt;fingerprint&gt;</code>, and posts the answer to a Slack-compatible webhook: 58 ms end to end with the stub. Tested with a simulated webhook, not a real Alertmanager</td>
+</tr>
+<tr>
+<td><strong>Streaming</strong></td>
+<td><strong>Works.</strong> <code>message/stream</code> returns SSE: submitted, working ×4, artifact-update, completed (final)</td>
+</tr>
+<tr>
+<td><strong>Polling</strong></td>
+<td><strong>Works.</strong> <code>tasks/get</code> by task id returns the stored task with its history</td>
+</tr>
+<tr>
+<td><strong>Multi-turn</strong></td>
+<td><strong>Works.</strong> A second <code>message/send</code> with the same <code>contextId</code> reached the model with the first exchange in its messages</td>
+</tr>
+<tr>
+<td><strong>Outbound credentials</strong></td>
+<td><strong>Works.</strong> <code>RemoteMCPServer.spec.headersFrom</code> with <code>valueFrom: {type: Secret, name, key}</code> and plain <code>value</code> both arrive as HTTP headers at the tool server</td>
+</tr>
+</tbody>
+</table></div>
+<h3>With a real model: <code>claude-haiku-4-5</code></h3>
+<p><code>real-model.yaml</code>: a <code>ModelConfig</code> on <code>claude-haiku-4-5</code> (kagent's own chart default for Anthropic; <code>claude-sonnet-5-5</code>
+is the step up) and a read-only <code>oncall</code> agent (<code>k8s_get_resources</code>, <code>k8s_describe_resource</code>, <code>k8s_get_events</code>,
+<code>k8s_get_pod_logs</code>) whose system prompt fixes the answer shape: <code>WHAT</code>, <code>CAUSE</code>, <code>NEXT</code>, <code>VERDICT: HEALTHY|UNHEALTHY</code>.
+The key lives only in the <code>kagent-anthropic</code> Secret. No API errors from kagent's Anthropic client. The scenario is a
+bare Pod <code>payments/payments-api</code> that prints <code>FATAL: DATABASE_URL not set</code> and exits 1.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Test</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Direct A2A question</td>
+<td>Correct diagnosis in <strong>5 s</strong>, quoting the log line, <code>VERDICT: UNHEALTHY</code>. 8 tool calls; the first (<code>k8s_get_resources</code> for a <em>deployment</em>) failed because it's a bare Pod, and the model recovered via pods, events and logs</td>
+</tr>
+<tr>
+<td>Alert bridge</td>
+<td>Webhook 202 at once, answer posted to the chat webhook <strong>4.4 s</strong> later, naming the cause and noticing the container command prints the error itself</td>
+</tr>
+<tr>
+<td>CI check</td>
+<td><code>checkout</code> (healthy nginx Deployment): <code>VERDICT: HEALTHY</code>, exit 0, 4 s. <code>payments-api</code>: <code>VERDICT: UNHEALTHY</code>, exit 1, ~4 s</td>
+</tr>
+<tr>
+<td>Claude Code → MCP → <code>oncall</code></td>
+<td>3 turns, $0.08 on the Claude Code side. It relayed the cause and wrote the <code>env:</code> fix, noting the agent couldn't know the real connection string. (It assumed a Deployment's <code>spec.template</code>; the scenario is a bare Pod, so a talk scenario should use a Deployment)</td>
+</tr>
+</tbody>
+</table></div>
+<h3>Auth: trusted-proxy mode doesn't verify tokens</h3>
+<p><code>controller.auth.mode: trusted-proxy</code> (the mode meant for oauth2-proxy) parses the bearer JWT <strong>without verifying its
+signature</strong> (<code>go/core/internal/httpserver/auth/proxy_authn.go</code>: "Parse JWT without validation (oauth2-proxy or k8s
+service account already validated)"). Tested: no token and a garbage token get 401; an unsigned hand-made JWT with
+<code>sub: ceo@example.com</code> is accepted, <code>/api/me</code> returns that identity, and the session is stored under it. Consequences:</p>
+<ul>
+<li>In trusted-proxy mode the controller must only be reachable through oauth2-proxy: a NetworkPolicy that admits only
+  the proxy (and the agents' own calls back) is not optional. The same applies to <code>unsecure</code> mode, which trusts
+  <code>X-User-Id</code>.</li>
+<li>In-cluster callers can use their projected ServiceAccount token as the bearer: kagent records them as
+  <code>system:serviceaccount:&lt;ns&gt;:&lt;name&gt;</code> (the alert bridge showed up exactly like that). Useful for audit, but it's an
+  unverified claim too, so it's only as trustworthy as the network path.</li>
+<li>Identity is used to own sessions; the spike found no per-user authorization on which agents a caller may invoke.
+  Not exhaustively checked.</li>
+</ul>
+<p>Full oauth2-proxy + OIDC (Dex) end-to-end: not done yet.</p>
+</main>
+</body>
+</html>

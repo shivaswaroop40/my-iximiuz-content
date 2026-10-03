@@ -1,0 +1,29 @@
+# kagent Helm values for the zoo: our own model, the bundled tool server, none of the bundled agents.
+providers:
+  default: openAI
+  openAI:
+    provider: OpenAI
+    model: detective-model
+    apiKey: not-a-real-key
+    config:
+      baseUrl: http://detective-model.kagent:8080/v1
+kagent-tools:
+  enabled: true
+kmcp: {enabled: false}
+grafana-mcp: {enabled: false}
+k8s-agent: {enabled: false}
+kgateway-agent: {enabled: false}
+istio-agent: {enabled: false}
+promql-agent: {enabled: false}
+observability-agent: {enabled: false}
+argo-rollouts-agent: {enabled: false}
+helm-agent: {enabled: false}
+cilium-policy-agent: {enabled: false}
+cilium-manager-agent: {enabled: false}
+cilium-debug-agent: {enabled: false}
+database:
+  postgres:
+    bundled:
+      image:
+        registry: public.ecr.aws
+        repository: docker/library

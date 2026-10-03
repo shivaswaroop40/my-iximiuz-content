@@ -1,0 +1,101 @@
+# The zoo as the night shift finds it. Applied by the playground's init task, not by the learner.
+# Every animal is a Deployment in the zoo namespace. Smaug's cave is too cold, so Smaug keeps leaving.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: zoo
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smaug-cave
+  namespace: zoo
+data:
+  temperature: "12"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smaug
+  namespace: zoo
+  labels: {species: dragon}
+spec:
+  selector:
+    matchLabels: {app: smaug}
+  template:
+    metadata:
+      labels: {app: smaug, species: dragon}
+    spec:
+      containers:
+      - name: dragon
+        image: public.ecr.aws/docker/library/busybox:1.37
+        command:
+        - sh
+        - -c
+        - |
+          t=$(cat /cave/temperature)
+          if [ "$t" -lt 40 ]; then
+            echo "Brr. The cave is ${t}°C (ConfigMap smaug-cave, key temperature). Dragons need at least 40°C. Smaug is leaving."
+            exit 1
+          fi
+          echo "The cave is ${t}°C. Smaug is asleep on the gold."
+          while sleep 3600; do :; done
+        volumeMounts:
+        - {name: cave, mountPath: /cave}
+      volumes:
+      - name: cave
+        configMap: {name: smaug-cave}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mochi
+  namespace: zoo
+  labels: {species: cat}
+spec:
+  selector:
+    matchLabels: {app: mochi}
+  template:
+    metadata:
+      labels: {app: mochi, species: cat}
+    spec:
+      containers:
+      - name: cat
+        image: public.ecr.aws/docker/library/busybox:1.37
+        command: ["sh", "-c", "echo 'mochi the cat is napping in the sun.'; while sleep 3600; do :; done"]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rex
+  namespace: zoo
+  labels: {species: dog}
+spec:
+  selector:
+    matchLabels: {app: rex}
+  template:
+    metadata:
+      labels: {app: rex, species: dog}
+    spec:
+      containers:
+      - name: dog
+        image: public.ecr.aws/docker/library/busybox:1.37
+        command: ["sh", "-c", "echo 'rex the dog is chewing a stick.'; while sleep 3600; do :; done"]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prickles
+  namespace: zoo
+  labels: {species: cactus}
+spec:
+  selector:
+    matchLabels: {app: prickles}
+  template:
+    metadata:
+      labels: {app: prickles, species: cactus}
+    spec:
+      containers:
+      - name: cactus
+        image: public.ecr.aws/docker/library/busybox:1.37
+        command: ["sh", "-c", "echo 'prickles the cactus is photosynthesizing.'; while sleep 3600; do :; done"]

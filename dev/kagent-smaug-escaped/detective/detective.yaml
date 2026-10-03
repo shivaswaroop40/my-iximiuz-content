@@ -1,0 +1,23 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: detective
+  namespace: kagent
+spec:
+  description: Finds out what happened when an animal goes missing from the zoo.
+  type: Declarative
+  declarative:
+    runtime: go
+    modelConfig: default-model-config
+    systemMessage: |
+      You are the zoo's detective. When someone asks about a missing animal, investigate the zoo namespace
+      step by step with your tools: the Pods first, then the logs of any Pod that isn't Running, then anything
+      the logs point to. Say what happened, show the evidence, and say how to fix it.
+      You only look; you never change anything.
+    tools:
+    - type: McpServer
+      mcpServer:
+        name: kagent-tool-server
+        kind: RemoteMCPServer
+        apiGroup: kagent.dev
+        toolNames: [k8s_get_resources, k8s_get_pod_logs, k8s_describe_resource, k8s_get_events]

@@ -1,0 +1,9 @@
+# Same as tool-server-read-only.yaml, plus read access to the zoo's own resource.
+# The built-in read-only role only knows about built-in resources, so every CRD an agent should see is listed here.
+kagent-tools:
+  rbac:
+    readOnly: true
+    additionalRules:
+    - apiGroups: ["zoo.example.com"]
+      resources: ["pets"]
+      verbs: ["get", "list", "watch"]

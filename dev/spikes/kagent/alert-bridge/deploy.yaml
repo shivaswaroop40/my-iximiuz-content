@@ -1,0 +1,39 @@
+# alert-bridge for the spike: runs main.go from a ConfigMap with `go run` (stdlib only, no image to build).
+#   kubectl create ns oncall
+#   kubectl -n oncall create configmap alert-bridge --from-file=main.go
+#   kubectl apply -f deploy.yaml
+# Point Alertmanager's webhook receiver at http://alert-bridge.oncall:8080/alertmanager.
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: alert-bridge, namespace: oncall}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: alert-bridge, namespace: oncall}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: alert-bridge}}
+  template:
+    metadata: {labels: {app: alert-bridge}}
+    spec:
+      serviceAccountName: alert-bridge
+      containers:
+      - name: bridge
+        image: public.ecr.aws/docker/library/golang:1.26-alpine
+        command: ["go", "run", "/src/main.go"]
+        env:
+        - {name: AGENT_URL, value: "http://kagent-controller.kagent:8083/api/a2a/kagent/keeper/"}
+        # Any Slack-compatible incoming webhook. In the spike, the stub model logs whatever it receives.
+        - {name: CHAT_WEBHOOK_URL, value: "http://stub-llm.kagent:8080/chat"}
+        - {name: GOCACHE, value: /tmp/gocache}
+        - {name: GOFLAGS, value: -mod=mod}
+        ports: [{containerPort: 8080}]
+        readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 2}
+        volumeMounts: [{name: src, mountPath: /src}]
+        resources: {requests: {cpu: 50m, memory: 128Mi}, limits: {memory: 512Mi}}
+      volumes: [{name: src, configMap: {name: alert-bridge}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: alert-bridge, namespace: oncall}
+spec: {selector: {app: alert-bridge}, ports: [{port: 8080, targetPort: 8080}]}

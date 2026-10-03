@@ -1,0 +1,13 @@
+#!/bin/bash
+# Radio a kagent agent: sends one A2A message/send to the kagent controller and prints the answer.
+#   ./radio detective "Where is Smaug?"
+# Needs the controller on localhost:8083: kubectl -n kagent port-forward svc/kagent-controller 8083:8083
+set -euo pipefail
+agent=$1 question=$2
+id=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+curl -s "http://localhost:8083/api/a2a/kagent/$agent/" \
+  -H 'content-type: application/json' \
+  -d "$(jq -n --arg id "$id" --arg q "$question" \
+        '{jsonrpc: "2.0", id: 1, method: "message/send",
+          params: {message: {role: "user", messageId: $id, parts: [{kind: "text", text: $q}]}}}')" \
+  | jq -r '.error.message // (.result.artifacts[]?.parts[]?.text)'

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CRD content on iximiuz Labs: landscape and roadmap</title>
+<style>
+:root { --bg:#f7f8f6; --fg:#1d2522; --muted:#5f6b66; --line:#d4dbd7; --panel:#ffffff; --code:#eef1ef; --accent:#2f6f63; }
+@media (prefers-color-scheme: dark) { :root { --bg:#141917; --fg:#e2e9e5; --muted:#9aa7a1; --line:#2f3a35; --panel:#1b221f; --code:#222b27; --accent:#7cc4b4; color-scheme: dark; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+main { max-width: 860px; margin: 0 auto; padding: 40px 20px 72px; }
+h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 .6em; text-wrap: balance; }
+h2 { font-size: 1.4rem; margin: 2.2em 0 .6em; padding-top: .8em; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 1.8em 0 .5em; }
+p, li { max-width: 72ch; }
+a { color: var(--accent); }
+code { font: .88em ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code); padding: .1em .35em; border-radius: 4px; }
+pre { background: var(--code); padding: 14px 16px; border-radius: 8px; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+.table-wrap { overflow-x: auto; margin: 1em 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: .94rem; }
+th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; background: var(--code); }
+tr:last-child td { border-bottom: 0; }
+.meta { color: var(--muted); font-size: .9rem; margin-bottom: 2em; }
+</style>
+</head>
+<body>
+<main>
+<p class="meta">Generated from crd-content-landscape.md</p>
+<h1>CRD content on iximiuz Labs: landscape and roadmap</h1>
+<p><em>Researched 2026-09-26 via web search. labs.iximiuz.com itself was not reachable from the authoring
+sandbox, so double-check the catalog for anything published recently.</em></p>
+<h2>What already exists</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Content</th>
+<th>Type</th>
+<th>How it touches CRDs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://labs.iximiuz.com/challenges/render-argocd-manifests-with-helm-without-reinstalling-existing-crds-cbceeaa3">Render and Install Argo CD with Helm, Skipping Pre-Installed CRDs</a></td>
+<td>Community challenge</td>
+<td>CRD <em>lifecycle</em> with Helm (<code>--skip-crds</code>). You consume CRDs, you don't author them.</td>
+</tr>
+<tr>
+<td><a href="https://labs.iximiuz.com/courses/kubelings-dbd840c8/module-10/cluster-api-intro">Kubelings, module 10: Cluster API, clusters as custom resources</a></td>
+<td>Course lesson</td>
+<td>Operator pattern explained through Cluster API. Conceptual; uses someone else's CRDs.</td>
+</tr>
+<tr>
+<td><a href="https://labs.iximiuz.com/tutorials/kubernetes-admission-control-534baab1">Kubernetes: Admission Control</a></td>
+<td>Tutorial</td>
+<td>Validation/mutation via webhooks and policies, not CRD schemas.</td>
+</tr>
+<tr>
+<td><a href="https://labs.iximiuz.com/tutorials/victoriametrics-getting-started-kubernetes">Getting Started with VictoriaMetrics on Kubernetes</a></td>
+<td>Tutorial</td>
+<td>Uses an operator's CRDs.</td>
+</tr>
+<tr>
+<td><a href="https://labs.iximiuz.com/playgrounds/k8s-client-go">Kubernetes Client (Go) playground</a></td>
+<td>Playground</td>
+<td>Go + client-go IDE, a ready-made base for controller content.</td>
+</tr>
+<tr>
+<td><a href="https://iximiuz.com/en/series/writing-kubernetes-controllers-operators/">Writing Kubernetes Controllers/Operators</a> and <a href="https://iximiuz.com/en/posts/kubernetes-operator-pattern/">Exploring the Operator Pattern</a></td>
+<td>Blog series (iximiuz.com, not Labs)</td>
+<td>Deep theory; no hands-on challenges attached.</td>
+</tr>
+</tbody>
+</table></div>
+<h2>The gap</h2>
+<p>No challenge found where the learner <strong>authors</strong> a CRD: schema, validation, defaulting, CEL,
+subresources, printer columns, versioning. Everything on the platform consumes someone else's CRDs.
+CRDs are how almost every tool extends Kubernetes, so the audience is anyone
+who installs operators or plans to write one, not only exam takers.</p>
+<h2>Roadmap: a "Custom Resources" series</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>Challenge</th>
+<th>Skill</th>
+<th>Difficulty</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>Open a Kubernetes Zoo: Design a Validated Pet CRD</strong></td>
+<td>names, structural schema, OpenAPI validation, CEL (incl. <code>duration()</code>), defaults before validation, status subresource, printer columns</td>
+<td>Medium</td>
+<td>✅ drafted as a tutorial: <code>tutorials/open-a-kubernetes-zoo-9ad54ae8</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>Make a CRD field immutable and add a v1beta1</td>
+<td>CEL transition rules (<code>self == oldSelf</code>), multiple served versions, storage version switch, <code>status.storedVersions</code></td>
+<td>Medium/Hard</td>
+<td>idea</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Namespace stuck in Terminating: orphaned custom resources</td>
+<td>finalizers on CRs, a deleted controller, <code>kubectl patch</code> to remove finalizers safely, API discovery errors</td>
+<td>Medium (troubleshooting, the series' signature style)</td>
+<td>idea</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Who can see the Pets?</td>
+<td>ClusterRole aggregation (<code>aggregate-to-view/edit/admin</code>) for custom resources</td>
+<td>Easy</td>
+<td>idea</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>Build a Kubernetes Operator From Scratch: A Pet That Gets Hungry</strong> (tutorial)</td>
+<td>CRD by hand, a bash reconcile loop, then Go + controller-runtime: markers and controller-gen, CreateOrUpdate, create-only children, owner references and GC, <code>Owns()</code> self-healing, <code>RequeueAfter</code> for time-based state, status and conditions, <code>observedGeneration</code>, events, restart catch-up</td>
+<td>Medium</td>
+<td>✅ drafted: <code>tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>All five share the same <code>Pet</code> API (group <code>zoo.example.com</code>), so they can later be bundled into a
+skill path or a short course, with each challenge's end state as the next one's init state.</p>
+</main>
+</body>
+</html>

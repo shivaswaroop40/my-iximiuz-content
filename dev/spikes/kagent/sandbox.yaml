@@ -1,0 +1,23 @@
+# gVisor RuntimeClass (only on nodes labelled by install-gvisor.sh's caller) and an Agent Sandbox v1.0.4 Sandbox.
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata: {name: gvisor}
+handler: runsc
+scheduling:
+  nodeSelector: {sandbox.gvisor.dev/runtime: runsc}
+---
+apiVersion: agents.x-k8s.io/v1beta1
+kind: Sandbox
+metadata: {name: scratchpad, namespace: default}
+spec:
+  podTemplate:
+    spec:
+      runtimeClassName: gvisor
+      containers:
+      - name: work
+        image: public.ecr.aws/docker/library/python:3.13-alpine
+        command: ["sh", "-c", "echo started; sleep infinity"]
+        volumeMounts: [{name: workspace, mountPath: /workspace}]
+  volumeClaimTemplates:
+  - metadata: {name: workspace}
+    spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 100Mi}}}

@@ -1,0 +1,61 @@
+# B1: ModelConfig whose key Secret doesn't exist
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata: {name: missing-secret, namespace: kagent}
+spec:
+  provider: OpenAI
+  model: zoo-stub
+  apiKeySecret: no-such-secret
+  apiKeySecretKey: OPENAI_API_KEY
+  openAI: {baseUrl: "http://stub-llm.kagent.svc.cluster.local:8080/v1"}
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata: {name: b1-secret, namespace: kagent}
+spec:
+  type: Declarative
+  declarative: {runtime: go, systemMessage: hi, modelConfig: missing-secret}
+---
+# B2: Agent pointing at a ModelConfig that doesn't exist
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata: {name: b2-nomodel, namespace: kagent}
+spec:
+  type: Declarative
+  declarative: {runtime: go, systemMessage: hi, modelConfig: no-such-model}
+---
+# B3: Agent asking for a tool the server doesn't have
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata: {name: b3-badtool, namespace: kagent}
+spec:
+  type: Declarative
+  declarative:
+    runtime: go
+    systemMessage: hi
+    modelConfig: default-model-config
+    tools:
+    - type: McpServer
+      mcpServer: {name: kagent-tool-server, kind: RemoteMCPServer, apiGroup: kagent.dev, toolNames: [k8s_get_pets]}
+---
+# B4: RemoteMCPServer at a wrong URL, and an agent using it
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata: {name: wrong-url, namespace: kagent}
+spec:
+  description: points nowhere
+  protocol: STREAMABLE_HTTP
+  url: http://kagent-tools.kagent:9999/mcp
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata: {name: b4-deadserver, namespace: kagent}
+spec:
+  type: Declarative
+  declarative:
+    runtime: go
+    systemMessage: hi
+    modelConfig: default-model-config
+    tools:
+    - type: McpServer
+      mcpServer: {name: wrong-url, kind: RemoteMCPServer, apiGroup: kagent.dev, toolNames: [k8s_get_resources]}

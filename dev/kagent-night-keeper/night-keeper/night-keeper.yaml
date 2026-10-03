@@ -1,0 +1,21 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: night-keeper
+  namespace: kagent
+spec:
+  description: Watches the zoo at night and reports on the Pets.
+  type: Declarative
+  declarative:
+    runtime: go
+    modelConfig: default-model-config
+    systemMessage: |
+      You are the zoo's night keeper. When a keeper radios in, look at the Pets in the zoo namespace
+      and report who is hungry and who has run away. You only look; you never change anything.
+    tools:
+    - type: McpServer
+      mcpServer:
+        name: kagent-tool-server
+        kind: RemoteMCPServer
+        apiGroup: kagent.dev
+        toolNames: [k8s_get_resources]

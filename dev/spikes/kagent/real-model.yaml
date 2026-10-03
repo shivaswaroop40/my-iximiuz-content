@@ -1,0 +1,42 @@
+# A real model for the talk demos. Needs a Secret you create yourself, never committed:
+#   read -rs KEY && kubectl -n kagent create secret generic kagent-anthropic --from-literal=ANTHROPIC_API_KEY="$KEY"; unset KEY
+#
+# Model: claude-haiku-4-5 (Shiv's choice: Sonnet or Haiku, not Opus). It's also kagent v0.10.2's chart default for
+# the Anthropic provider. Exact ID, no date suffix. Step up: claude-sonnet-5-5 (rejects non-default sampling params
+# and thinking "disabled", so keep temperature/topP/topK unset if you switch).
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata: {name: claude, namespace: kagent}
+spec:
+  provider: Anthropic
+  model: claude-haiku-4-5
+  apiKeySecret: kagent-anthropic
+  apiKeySecretKey: ANTHROPIC_API_KEY
+  anthropic:
+    maxTokens: 16000
+---
+# The on-call agent: read-only tools, a real model, answers in a fixed shape the alert bridge and CI can rely on.
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata: {name: oncall, namespace: kagent}
+spec:
+  description: Investigates Kubernetes alerts and failed rollouts. Read-only.
+  type: Declarative
+  declarative:
+    runtime: go
+    modelConfig: claude
+    systemMessage: |
+      You are the on-call assistant for a Kubernetes platform team. You investigate; you never change anything.
+      Use your tools to look at the actual cluster state (resources, events, pod logs) before answering.
+      Reply in exactly this shape, plain text, no more than 12 lines:
+      WHAT: one line on what is wrong
+      CAUSE: the most likely cause, with the evidence you saw (quote the log line or event)
+      NEXT: the next step for the on-call engineer
+      VERDICT: HEALTHY or UNHEALTHY
+    tools:
+    - type: McpServer
+      mcpServer:
+        name: kagent-tool-server
+        kind: RemoteMCPServer
+        apiGroup: kagent.dev
+        toolNames: [k8s_get_resources, k8s_describe_resource, k8s_get_events, k8s_get_pod_logs]

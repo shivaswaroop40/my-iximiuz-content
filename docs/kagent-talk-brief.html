@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Talk material brief: running AI agents on Kubernetes with kagent</title>
+<style>
+:root { --bg:#f7f8f6; --fg:#1d2522; --muted:#5f6b66; --line:#d4dbd7; --panel:#ffffff; --code:#eef1ef; --accent:#2f6f63; }
+@media (prefers-color-scheme: dark) { :root { --bg:#141917; --fg:#e2e9e5; --muted:#9aa7a1; --line:#2f3a35; --panel:#1b221f; --code:#222b27; --accent:#7cc4b4; color-scheme: dark; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+main { max-width: 860px; margin: 0 auto; padding: 40px 20px 72px; }
+h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 .6em; text-wrap: balance; }
+h2 { font-size: 1.4rem; margin: 2.2em 0 .6em; padding-top: .8em; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 1.8em 0 .5em; }
+p, li { max-width: 72ch; }
+a { color: var(--accent); }
+code { font: .88em ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code); padding: .1em .35em; border-radius: 4px; }
+pre { background: var(--code); padding: 14px 16px; border-radius: 8px; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+.table-wrap { overflow-x: auto; margin: 1em 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: .94rem; }
+th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; background: var(--code); }
+tr:last-child td { border-bottom: 0; }
+.meta { color: var(--muted); font-size: .9rem; margin-bottom: 2em; }
+</style>
+</head>
+<body>
+<main>
+<p class="meta">Generated from kagent-talk-brief.md</p>
+<h1>Talk material brief: running AI agents on Kubernetes with kagent</h1>
+<p>Input for a KubeCon talk-suggestion agent. Everything under "Verified" was run on real clusters between
+2026-10-01 and 2026-10-02 and observed directly. Anything not run is listed under "Not verified". Don't
+present unverified items as findings.</p>
+<h2>Speaker</h2>
+<ul>
+<li>Shiva Swaroop N K ("Shiv"). Works at Ankra. Author of hands-on Kubernetes tutorials and challenges on
+  iximiuz Labs (CRDs, operators, CKA-style debugging, pod certificates / mTLS).</li>
+<li>Strong on Kubernetes internals and Go; newer to AI agents. Explains things from the platform engineer's side.</li>
+<li>Has two published tutorials this work builds on: "How Kubernetes CRDs Work: Designing a Validated API From
+  Scratch" and "How Kubernetes Operators Work: Building a Controller From Scratch" (both use a Pet "zoo" storyline).</li>
+</ul>
+<h2>Subject</h2>
+<p>kagent (CNCF Sandbox since 2025-05-22, by Solo.io): AI agents defined as Kubernetes custom resources. An <code>Agent</code>
+names a model (<code>ModelConfig</code>) and tools (<code>RemoteMCPServer</code>, i.e. MCP tool servers); a controller turns it into a
+Deployment, Service, ServiceAccount and a config Secret. Also looked at: Agent Sandbox (kubernetes-sigs, <code>Sandbox</code>
+CRD) with gVisor.</p>
+<h2>Environment</h2>
+<ul>
+<li>iximiuz Labs <code>k8s-omni</code> playgrounds: kubeadm Kubernetes v1.37.0, containerd 2.3.4, flannel, Firecracker VMs
+  (dev machine 2 CPU / 4 GB, control plane 4 CPU / 4 GB, two workers 2 CPU / 4 GB). No nested virtualization.</li>
+<li>kagent v0.10.2 (Helm, <code>oci://ghcr.io/kagent-dev/kagent/helm/{kagent-crds,kagent}</code>), Go agent runtime.</li>
+<li>Agent Sandbox v1.0.4, gVisor release-20260928.0.</li>
+<li>Models: a scripted OpenAI-compatible stand-in (Python, ~150 lines) for deterministic demos; Anthropic
+  <code>claude-haiku-4-5</code> for real-model runs. Speaker's constraint: use Haiku or Sonnet for demos, not Opus.</li>
+</ul>
+<h2>Verified findings</h2>
+<h3>How kagent works</h3>
+<ol>
+<li><code>kubectl apply</code> of a ~20-line <code>Agent</code> produced a Deployment, Service, ServiceAccount and a Secret
+   (<code>config.json</code> + <code>agent-card.json</code>), all owned by the Agent, within ~3 s; <code>Ready=True</code> after ~10 s.
+   The agent Pod reads only the compiled <code>config.json</code> (model URL + filtered tool list), never kagent CRs.</li>
+<li>kagent's Go runtime (OpenAI provider) only ever called non-streaming <code>POST /v1/chat/completions</code> with <code>tools</code>
+   and <code>tool_choice: auto</code>, plus a built-in <code>ask_user</code> tool added to every agent. A ~100-line stub model is enough
+   to run agents with no API key.</li>
+<li>One multi-hop question ("Where is Smaug?") took 4 round trips to the model and 3 tool calls (list Pods, read the
+   failing Pod's logs, read the ConfigMap the logs named), 0.24 s end to end with the stub. The message list grows
+   each trip because the model is stateless; the runtime re-sends the conversation.</li>
+<li>Memory is per <code>contextId</code>. Without one, every A2A call is a new conversation: with Haiku, "Is anything about to go
+   wrong?" got a full investigation, and the follow-up "can you fix it for me?" got "which animal is missing?"
+   because none of the first exchange was sent. With the same <code>contextId</code>, the second turn reached the model with
+   the first exchange included (conversations are stored in kagent's bundled Postgres).</li>
+<li>Haiku also declined to fix anything ("I can only look around"): both the system prompt ("you never change
+   anything") and a read-only tool list. The tool list is the enforcement; the prompt is a request.</li>
+</ol>
+<h3>Ways in (all through the controller, port 8083)</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A2A JSON-RPC <code>message/send</code> to <code>/api/a2a/&lt;ns&gt;/&lt;agent&gt;/</code></td>
+<td>Works. Also <code>message/stream</code> (SSE: submitted → working → artifact → completed) and <code>tasks/get</code></td>
+</tr>
+<tr>
+<td>MCP at <code>/mcp</code> (tools <code>list_agents</code>, <code>invoke_agent</code> with optional <code>context_id</code>)</td>
+<td>Works with MCP Inspector CLI and with Claude Code (<code>claude -p --mcp-config</code>): Claude Code asked an in-cluster agent, 3-4 turns, $0.03-$0.08 on the Claude Code side</td>
+</tr>
+<tr>
+<td>Agent as a tool of another agent (<code>tools: [{type: Agent, agent: {name: keeper}}]</code>)</td>
+<td>Works. The caller sees it as a tool named <code>kagent__NS__keeper</code> with one <code>request</code> argument</td>
+</tr>
+<tr>
+<td>kagent CLI v0.10.2 <code>kagent invoke</code></td>
+<td>Broken: sends <code>"messageId": ""</code>; the agent rejects it and the error surfaces as <code>failed to decode response ... errordetails.Typed</code>. Same request with any messageId works. Upstream bug, not yet reported</td>
+</tr>
+</tbody>
+</table></div>
+<h3>Integrations built and run</h3>
+<ul>
+<li><strong>Alertmanager → alert bridge → agent → chat.</strong> ~170-line stdlib Go service: takes an Alertmanager v4 webhook,
+  replies 202, asks the agent with <code>contextId = alert-&lt;fingerprint&gt;</code>, posts the answer to a Slack-compatible webhook.
+  With Haiku: answer posted 4.4 s after the webhook, correctly naming the cause ("FATAL: DATABASE_URL not set") from
+  Pod logs. kagent recorded the caller as <code>system:serviceaccount:oncall:alert-bridge</code>. Tested with a simulated
+  webhook, not a real Alertmanager.</li>
+<li><strong>CI gate.</strong> Bash step asks a read-only <code>oncall</code> agent (system prompt fixes the answer to WHAT / CAUSE / NEXT /
+  VERDICT) and fails the job on <code>VERDICT: UNHEALTHY</code>. Haiku: healthy nginx Deployment → HEALTHY, exit 0, ~4 s;
+  crash-looping workload → UNHEALTHY, exit 1, ~4 s.</li>
+<li><strong>Claude Code → kagent.</strong> See MCP row above. Claude Code relayed the cause and wrote the <code>env:</code> fix itself.</li>
+<li><strong>Model swap in place.</strong> Changing a <code>ModelConfig</code> from OpenAI (stub) to Anthropic Haiku made the controller rebuild
+  the agent's config and roll its Deployment; next question answered by Claude ("Look for Smaug first").</li>
+</ul>
+<h3>Security and operations</h3>
+<ol>
+<li><strong>The bundled tool server is cluster-admin and unauthenticated.</strong> <code>kagent-tools</code> is bound to a ClusterRole with
+   <code>*/*/*</code>. The agent's own ServiceAccount can do nothing (<code>can-i get pods</code>: no). An agent's <code>toolNames</code> is a filter
+   applied in the agent runtime, not by the server. A Pod in an unrelated namespace, with no credentials, ran the
+   MCP handshake against <code>kagent-tools:8084/mcp</code> and listed the Secrets in <code>kagent</code>.</li>
+<li><strong>The chart has a fix, with a catch.</strong> <code>kagent-tools.rbac.readOnly: true</code> swaps cluster-admin for get/list/watch
+   on built-in resources, no Secrets. After it, the intruder's Secret listing failed. But the read-only role knows
+   nothing about CRDs: an agent reporting on a custom resource (Pets) went blind until
+   <code>kagent-tools.rbac.additionalRules</code> granted that CRD. The intruder can still connect; closing that needs a
+   NetworkPolicy and a CNI that enforces it (flannel doesn't).</li>
+<li><strong><code>trusted-proxy</code> auth doesn't verify tokens.</strong> With <code>controller.auth.mode: trusted-proxy</code> (meant to sit behind
+   oauth2-proxy), the controller decodes the bearer JWT without checking its signature (code comment: "oauth2-proxy
+   or k8s service account already validated"). No token / garbage → 401; a hand-made unsigned JWT with
+   <code>sub: ceo@example.com</code> → accepted, <code>/api/me</code> returns that identity, session stored under it. So the controller
+   must only be reachable through the proxy. In-cluster callers can use their projected SA token and are recorded as
+   <code>system:serviceaccount:&lt;ns&gt;:&lt;name&gt;</code>, which is only as trustworthy as the network path. No per-user authorization
+   on which agents a caller may invoke was found (not exhaustively checked).</li>
+<li><strong>Ready doesn't mean working.</strong> An Agent whose <code>toolNames</code> had a typo (<code>k8s_get_pets</code>) was Accepted and Ready,
+   ran with only <code>ask_user</code>, and answered "I can't see the zoo". Real tool names live in the RemoteMCPServer's
+   <code>.status.discoveredTools</code> (124 tools). With a real LLM, this failure is quieter: it answers anyway.</li>
+<li><strong>Failure signatures</strong> (useful for a "debugging agents" segment): missing key Secret → ModelConfig Accepted=False,
+   Agent Accepted=True, Pod <code>CreateContainerConfigError</code>; missing ModelConfig → Agent Accepted=False with a clear
+   message; wrong MCP URL → Pod Running but never Ready, no error logged; tool-name typo → silently Ready.</li>
+<li><strong>Install gotchas.</strong> k8s-omni (kubeadm) has no StorageClass, so bundled Postgres stays Pending and the controller
+   crash-loops on <code>database migration failed ... connection refused</code>. Fix: local-path-provisioner as default; the
+   waiting PVC is bound retroactively (Kubernetes v1.28+), no recreation needed. Bundled Postgres pulls from Docker
+   Hub by default; <code>public.ecr.aws/docker/library/postgres</code> works via chart values.</li>
+<li><strong>API churn.</strong> kagent v1.0.0 was in alpha (alpha6 on 2026-09-30) and moves the API group from <code>kagent.dev</code> to
+   <code>api.kagent.dev</code>, replacing <code>ToolServer</code>/<code>Memory</code>/<code>SandboxAgent</code> with <code>Harness</code>/<code>SandboxTemplate</code> and adding
+   <code>AgentTemplate</code>. Anything built on v0.10.2 needs migrating.</li>
+</ol>
+<h3>Agent Sandbox</h3>
+<ul>
+<li>gVisor (systrap, no KVM) installed on Firecracker-backed workers in ~40 s via apt; Pods ran with
+  <code>4.19.0-gvisor</code>. iximiuz Labs disabled nested virtualization on 2026-07-13 (KVM escape CVEs), so Kata is out, but
+  gVisor works.</li>
+<li>Agent Sandbox v1.0.4: a <code>Sandbox</code> with a PVC workspace was Ready in 6 s. <code>operatingMode: Suspended</code> deleted the
+  Pod and kept the PVC; <code>Running</code> brought it back with the workspace intact.</li>
+<li>Gotcha: k8s-omni's control plane takes workloads and had no gVisor, so the first Sandbox failed there
+  (<code>unable to get OCI runtime</code>). Fix: label gVisor nodes and set <code>scheduling.nodeSelector</code> on the RuntimeClass.</li>
+</ul>
+<h3>Resource footprint</h3>
+<p>kagent + Postgres + tool server + UI + stub model + Agent Sandbox + one sandbox: busiest worker ~1.2 GiB of 3.6 GiB
+requested, ~700 MiB used. Each agent Pod requests 100m / 384Mi. Helm install ~3 s; all Pods Ready ~60 s on a fresh
+cluster.</p>
+<h2>Not verified</h2>
+<ul>
+<li>A full oauth2-proxy + OIDC (e.g. Dex) login in front of the controller.</li>
+<li>A real Alertmanager with a real alert rule (only its webhook payload was simulated).</li>
+<li>Calico or Cilium on k8s-omni with kagent, and an actual NetworkPolicy blocking the tool server.</li>
+<li>kagent's own <code>SandboxAgent</code> / substrate integration with Agent Sandbox (off by default, in flux for v1).</li>
+<li>Ollama or any local model.</li>
+<li>Streaming with a real model; <code>message/stream</code> was only tested with the stub.</li>
+<li>Whether kagent ships a Slack integration.</li>
+</ul>
+<h2>Demo assets that exist</h2>
+<ul>
+<li><strong>"Smaug escaped"</strong> (tutorial draft, no API key): zoo of Deployments; Smaug crash-loops because ConfigMap
+  <code>smaug-cave</code> sets <code>temperature: "12"</code> (dragons need 40). A detective Agent finds it in 3 tool calls; the stub's
+  log prints one "rule" per step, a readable notebook of the agent loop. Warming the cave flips the answer to
+  "Everyone's home". Works with Haiku by changing one field.</li>
+<li><strong>Stateless follow-up moment:</strong> Haiku's "can you fix it for me?" → "which animal is missing?" screenshot.</li>
+<li><strong>Intruder Pod</strong> listing Secrets through the tool server, then failing after <code>rbac.readOnly</code>.</li>
+<li><strong>Forged-JWT request</strong> accepted in trusted-proxy mode.</li>
+<li><strong>alert-bridge</strong> (Go), <strong>ci-check.sh</strong>, <strong>Claude Code MCP config</strong>, all run against Haiku.</li>
+<li>Diagrams: what <code>kubectl apply</code> builds; one question's 11-step sequence; keys before/after; callers through the
+  controller.</li>
+</ul>
+<h2>Angles the material supports</h2>
+<p>Ranked by how much verified evidence backs them:</p>
+<ol>
+<li><strong>Agents are workloads: securing the tool server, not the prompt.</strong> Cluster-admin default, unauthenticated MCP,
+   <code>toolNames</code> as a client-side filter, read-only RBAC missing CRDs, unverified JWTs in trusted-proxy mode.</li>
+<li><strong>What an agent actually is, shown with a fake brain.</strong> Deterministic stub model + kagent: the loop, the growing
+   message list, statelessness and <code>contextId</code>, then the one-line swap to a real model.</li>
+<li><strong>One agent, three front doors: platform integrations.</strong> The same in-cluster agent serving an IDE (Claude Code
+   over MCP), an alert pipeline (Go bridge) and a CI gate, with identity recorded per caller.</li>
+<li><strong>Debugging agents with kubectl.</strong> The failure-signature table; "Ready doesn't mean working".</li>
+<li><strong>Isolating what agents run.</strong> Agent Sandbox + gVisor on VMs without nested virtualization; suspend/resume.</li>
+</ol>
+<h2>Constraints and preferences</h2>
+<ul>
+<li>Demos must work live without depending on a large model: the stub covers every deterministic beat; Haiku for the
+  real-model beat. Budget used for testing was a few dollars.</li>
+<li>Voice: plain, first person, practical; no hype. The speaker prefers fun, small examples over large ones
+  (the zoo storyline is established across his tutorials).</li>
+<li>Version-pin everything (kagent v0.10.2); call out the v1 API move.</li>
+<li>Don't frame item 3 under Security (trusted-proxy) as a vulnerability disclosure: it's documented intent in the
+  code; frame it as a deployment requirement.</li>
+</ul>
+</main>
+</body>
+</html>

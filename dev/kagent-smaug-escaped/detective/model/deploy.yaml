@@ -1,0 +1,39 @@
+# Runs detective-model.py from the ConfigMap created with:
+#   kubectl -n kagent create configmap detective-model --from-file=model/detective-model.py
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: detective-model
+  namespace: kagent
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: detective-model}
+  template:
+    metadata:
+      labels: {app: detective-model}
+    spec:
+      containers:
+      - name: model
+        image: public.ecr.aws/docker/library/python:3.13-alpine
+        command: ["python", "-u", "/app/detective-model.py", "8080"]
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - {name: app, mountPath: /app}
+        resources:
+          requests: {cpu: 10m, memory: 32Mi}
+          limits: {memory: 64Mi}
+      volumes:
+      - name: app
+        configMap: {name: detective-model}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: detective-model
+  namespace: kagent
+spec:
+  selector: {app: detective-model}
+  ports:
+  - port: 8080

@@ -1,0 +1,18 @@
+# A Pod in an unrelated namespace that runs intruder.sh. Create its ConfigMap first:
+#   kubectl -n visitors create configmap intruder --from-file=intruder.sh
+apiVersion: v1
+kind: Pod
+metadata:
+  name: intruder
+  namespace: visitors
+spec:
+  restartPolicy: Never
+  containers:
+  - name: intruder
+    image: public.ecr.aws/docker/library/alpine:3.22
+    command: ["sh", "/script/intruder.sh"]
+    volumeMounts:
+    - {name: script, mountPath: /script}
+  volumes:
+  - name: script
+    configMap: {name: intruder}

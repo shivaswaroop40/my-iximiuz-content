@@ -1,0 +1,74 @@
+# The zoo as the night shift finds it. Applied by the playground's init task, not by the learner.
+# The Pet CRD is the finished one from "How Kubernetes CRDs Work" (without its CEL rules, which this tutorial doesn't need).
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: pets.zoo.example.com
+spec:
+  group: zoo.example.com
+  scope: Namespaced
+  names:
+    kind: Pet
+    plural: pets
+    singular: pet
+    shortNames: [pt]
+    categories: [zoo]
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    subresources:
+      status: {}
+    additionalPrinterColumns:
+    - {name: Species,  type: string, jsonPath: .spec.species}
+    - {name: Face,     type: string, jsonPath: .status.face}
+    - {name: Mood,     type: string, jsonPath: .status.mood}
+    - {name: Toy,      type: string, jsonPath: .spec.toy}
+    - {name: Last Fed, type: date,   jsonPath: .spec.lastFedAt}
+    - {name: Age,      type: date,   jsonPath: .metadata.creationTimestamp}
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            required: [species]
+            properties:
+              species: {type: string, enum: [cat, dog, dragon, cactus]}
+              toy: {type: string, maxLength: 20}
+              diet:
+                type: object
+                default: {}
+                properties:
+                  food: {type: string, maxLength: 20, default: snacks}
+                  feedEvery: {type: string, maxLength: 10, pattern: '^[0-9]+(s|m|h)$', default: 10m}
+              lastFedAt: {type: string, format: date-time}
+          status:
+            type: object
+            properties:
+              mood: {type: string}
+              face: {type: string}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: zoo}
+---
+apiVersion: zoo.example.com/v1alpha1
+kind: Pet
+metadata: {name: mochi, namespace: zoo}
+spec: {species: cat, toy: yarn}
+---
+apiVersion: zoo.example.com/v1alpha1
+kind: Pet
+metadata: {name: prickles, namespace: zoo}
+spec: {species: cactus, diet: {food: water, feedEvery: 168h}}
+---
+apiVersion: zoo.example.com/v1alpha1
+kind: Pet
+metadata: {name: rex, namespace: zoo}
+spec: {species: dog, toy: stick, diet: {food: bones, feedEvery: 30m}}
+---
+apiVersion: zoo.example.com/v1alpha1
+kind: Pet
+metadata: {name: smaug, namespace: zoo}
+spec: {species: dragon, diet: {food: sheep, feedEvery: 6h}}

@@ -1,0 +1,26 @@
+# kagent v0.10.2 Helm values used in the spike: a stub model, the tool server, none of the bundled agents.
+providers:
+  default: openAI
+  openAI:
+    provider: OpenAI
+    model: "zoo-stub"
+    apiKey: "not-a-real-key"
+    config:
+      baseUrl: "http://stub-llm.kagent.svc.cluster.local:8080/v1"
+ui:
+  enabled: true
+kmcp:
+  enabled: false
+kagent-tools:
+  enabled: true
+k8s-agent: {enabled: false}
+kgateway-agent: {enabled: false}
+istio-agent: {enabled: false}
+promql-agent: {enabled: false}
+observability-agent: {enabled: false}
+argo-rollouts-agent: {enabled: false}
+helm-agent: {enabled: false}
+cilium-policy-agent: {enabled: false}
+cilium-manager-agent: {enabled: false}
+cilium-debug-agent: {enabled: false}
+grafana-mcp: {enabled: false}

@@ -1,0 +1,5 @@
+# Helm values that take away the tool server's cluster-admin role.
+# readOnly swaps it for get/list/watch on the built-in resources, with no Secrets.
+kagent-tools:
+  rbac:
+    readOnly: true

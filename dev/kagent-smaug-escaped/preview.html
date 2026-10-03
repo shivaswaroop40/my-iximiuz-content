@@ -1,0 +1,796 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Zoo Mystery Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a reading column with a sticky rail (playground, checkpoints, contents); one animated cover; everything else still. */
+:root {
+  --paper: #f3f6f5;        /* cool paper, a little green */
+  --sheet: #ffffff;
+  --ink: #16201c;
+  --muted: #5b6863;
+  --line: #d7dfdb;
+  --term: #101815;          /* terminal */
+  --term-ink: #d9e6df;
+  --term-dim: #7d9188;
+  --out: #eaf0ed;
+  --ember: #c2410c;         /* Smaug, errors, the cold cave */
+  --ember-soft: #fde8dc;
+  --teal: #0f766e;          /* resolved, checkpoints */
+  --teal-soft: #d6efe9;
+  --brass: #8a6a12;         /* the model thinking */
+  --brass-soft: #f6edd2;
+  --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:#0f1513; --sheet:#151d1a; --ink:#e3ece8; --muted:#97a6a0; --line:#2a3631;
+    --term:#0a0f0d; --term-ink:#d9e6df; --term-dim:#71857c; --out:#1b2420;
+    --ember:#fb8b5b; --ember-soft:#3a1d12; --teal:#5fd0c0; --teal-soft:#123430; --brass:#e0b84d; --brass-soft:#352b10;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper:#0f1513; --sheet:#151d1a; --ink:#e3ece8; --muted:#97a6a0; --line:#2a3631;
+  --term:#0a0f0d; --term-ink:#d9e6df; --term-dim:#71857c; --out:#1b2420;
+  --ember:#fb8b5b; --ember-soft:#3a1d12; --teal:#5fd0c0; --teal-soft:#123430; --brass:#e0b84d; --brass-soft:#352b10;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 16.5px/1.7 var(--body); -webkit-font-smoothing: antialiased; }
+a { color: var(--teal); text-underline-offset: 3px; }
+code, pre, kbd, svg .mono, svg .row, svg .k, .chip, .tool, .copy { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; border-radius: 4px; }
+
+.preview-bar { position: sticky; top: 0; z-index: 10; display: flex; gap: 12px; align-items: center; justify-content: center;
+  padding: 8px 16px; background: var(--ink); color: var(--paper); font: 500 12.5px/1.3 var(--mono); letter-spacing: .02em; }
+.preview-bar b { color: var(--brass-soft); font-weight: 500; }
+
+.shell { max-width: 1180px; margin: 0 auto; padding-inline: 20px; padding-block: 0 96px;
+  display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 56px; }
+header.hero { grid-column: 1 / -1; padding-block: 48px 8px; display: grid; gap: 14px; max-width: 820px; }
+.crumbs { font: 500 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.kicker { font: 600 15px/1.3 var(--body); color: var(--teal); }
+h1 { font: 700 clamp(34px, 5.4vw, 56px)/1.04 var(--display); letter-spacing: -.02em; margin: 0; text-wrap: balance; }
+.lede { font-size: 19px; line-height: 1.6; color: var(--muted); max-width: 64ch; margin: 0; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 14px; color: var(--muted); }
+.meta .who { color: var(--ink); font-weight: 500; }
+.badge { font: 500 12.5px/1 var(--body); padding: 6px 10px; border-radius: 999px; background: var(--teal-soft); color: var(--teal); }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { font: 12px/1 var(--mono); padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); }
+
+article { min-width: 0; max-width: 760px; }
+article > p, article li { max-width: 68ch; }
+article h2 { font: 700 29px/1.15 var(--display); letter-spacing: -.01em; margin: 64px 0 14px; text-wrap: balance; }
+article h3 { font: 600 21px/1.25 var(--display); margin: 40px 0 10px; }
+article code { font: .86em var(--mono); background: var(--out); padding: .12em .38em; border-radius: 5px; }
+article strong { font-weight: 600; }
+article ul, article ol:not(.trips) { padding-left: 1.2em; }
+article li { margin: .3em 0; }
+
+/* code */
+.code { margin: 18px 0 22px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); }
+.code pre { margin: 0; padding: 14px 16px; overflow-x: auto; font: 13.5px/1.6 var(--mono); }
+.code pre code { background: none; padding: 0; font: inherit; }
+.code-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 7px 12px 7px 16px;
+  font: 12px/1.2 var(--mono); }
+.cmd { background: var(--term); border-color: transparent; }
+.cmd .code-bar { color: var(--term-dim); border-bottom: 1px solid rgba(255,255,255,.06); }
+.cmd pre { color: var(--term-ink); }
+.prompt { color: var(--teal); user-select: none; }
+.copy { font: 500 12px/1 var(--mono); color: var(--term-ink); background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12);
+  padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.copy:hover { background: rgba(255,255,255,.14); }
+.out { background: var(--out); }
+.out .code-bar { color: var(--muted); padding-bottom: 0; }
+.out pre { color: var(--ink); padding-top: 6px; }
+.file { background: var(--sheet); }
+.file .code-bar { background: var(--out); border-bottom: 1px solid var(--line); color: var(--ink); }
+.file .lang { color: var(--muted); }
+.ember { color: var(--ember); font-weight: 500; }
+.ok { color: var(--teal); }
+
+/* the detective's reply */
+.reply { position: relative; margin: 18px 0 22px; padding: 16px 18px 16px 20px; border-radius: 12px; background: var(--sheet);
+  border: 1px solid var(--line); box-shadow: 0 1px 0 var(--line); }
+.reply::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 3px; background: var(--ember); }
+.reply.home::before { background: var(--teal); }
+.reply-from { font: 500 12px/1 var(--mono); color: var(--muted); }
+.reply p { margin: 8px 0 0; font-size: 16px; max-width: none; }
+
+/* checkpoints */
+.checkpoint { display: flex; gap: 14px; align-items: flex-start; margin: 26px 0; padding: 14px 16px; border-radius: 12px;
+  background: var(--teal-soft); color: var(--ink); }
+.cp-icon { position: relative; flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--teal); display: grid; place-items: center; margin-top: 2px; }
+.cp-icon svg { width: 15px; height: 15px; fill: none; stroke: var(--sheet); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.cp-spin { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--teal); border-right-color: transparent; opacity: 0; }
+.cp-text { display: grid; gap: 2px; min-width: 0; }
+.cp-label { font: 500 11.5px/1.4 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--teal); }
+.cp-active { display: none; color: var(--muted); }
+.checkpoint.waiting { background: var(--out); }
+.checkpoint.waiting .cp-icon { background: transparent; }
+.checkpoint.waiting .cp-icon svg { opacity: 0; }
+.checkpoint.waiting .cp-spin { opacity: 1; animation: spin .9s linear infinite; }
+.checkpoint.waiting .cp-active { display: block; }
+.checkpoint.waiting .cp-done { display: none; }
+.checkpoint.just-done .cp-icon { animation: pop .45s cubic-bezier(.3,1.6,.5,1); }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pop { 0% { transform: scale(.6); } 100% { transform: scale(1); } }
+
+/* notebook */
+.notebook { margin: 18px 0 26px; border: 1px solid var(--line); border-radius: 12px; background: var(--sheet); overflow: hidden; }
+.nb-head { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; padding: 10px 14px 10px 16px;
+  background: var(--out); border-bottom: 1px solid var(--line); font: 12.5px/1.3 var(--mono); color: var(--muted); }
+.replay, .pause { font: 500 12.5px/1 var(--body); color: var(--ink); background: var(--sheet); border: 1px solid var(--line);
+  padding: 8px 12px; border-radius: 999px; cursor: pointer; }
+.replay:hover, .pause:hover { border-color: var(--teal); color: var(--teal); }
+.trips { list-style: none; margin: 0; padding: 6px 0; display: grid; }
+.trip { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 12px; padding: 12px 16px; border-bottom: 1px dashed var(--line); width: 100%;
+  transition: opacity .35s ease, transform .35s ease; }
+.trip:last-child { border-bottom: 0; }
+.trip-n { font: 600 14px/1.4 var(--display); color: var(--brass); }
+.trip-body { display: grid; gap: 6px; min-width: 0; }
+.trip-row { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 10px; align-items: baseline; font-size: 14.5px; }
+.trip-k { font: 11.5px/1.4 var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font: 11.5px/1 var(--mono); padding: 4px 7px; border-radius: 5px; background: var(--out); color: var(--muted); }
+.chip.r-user { background: var(--teal-soft); color: var(--teal); }
+.chip.r-tool { background: var(--brass-soft); color: var(--brass); }
+.rule { font-style: italic; }
+.replytext code { font: 12px var(--mono); background: var(--out); padding: .1em .35em; border-radius: 4px; word-break: break-word; }
+.tool { font: 500 13px var(--mono); color: var(--brass); }
+.notebook.playing .trip { opacity: .12; transform: translateY(4px); }
+.notebook.playing .trip.shown { opacity: 1; transform: none; }
+.nb-raw { border-top: 1px solid var(--line); }
+.nb-raw summary { cursor: pointer; padding: 10px 16px; font: 12.5px var(--mono); color: var(--muted); }
+.nb-raw pre { margin: 0; padding: 4px 16px 16px; overflow-x: auto; font: 12.5px/1.6 var(--mono); }
+
+/* cover */
+.cover { margin: 28px 0 30px; }
+.cover-stage { background: var(--sheet); border: 1px solid var(--line); border-radius: 16px; overflow-x: auto; }
+.cover svg { display: block; width: 100%; min-width: 640px; height: auto; }
+.cover figcaption { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px;
+  font-size: 14px; color: var(--muted); }
+.cover .step { min-height: 1.5em; }
+svg text { font-family: var(--body); fill: var(--ink); }
+svg .k { font: 500 11px var(--mono); fill: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+svg .v { font-size: 15px; font-weight: 600; }
+svg .think { fill: var(--brass); font-style: italic; font-weight: 500; }
+svg .row { font: 12.5px var(--mono); }
+svg .row.ok { fill: var(--teal); }
+svg .row.ember { fill: var(--ember); font-weight: 500; }
+svg .quote { font-size: 13.5px; font-style: italic; fill: var(--ember); }
+svg .mono { font: 13px var(--mono); }
+svg .mono.big { font-size: 22px; font-weight: 500; fill: var(--ember); }
+svg .small { font-size: 13px; fill: var(--muted); }
+svg .tiny { font: 10px var(--mono); fill: var(--muted); }
+svg .wire-label { font: 11px var(--mono); fill: var(--muted); }
+svg .wire { fill: none; stroke: var(--line); stroke-width: 1.6; transition: stroke .3s; }
+svg .wire.hot { stroke: var(--brass); }
+svg .arrowhead { fill: var(--muted); }
+svg .node rect, svg .card rect:first-of-type, svg .answer rect { fill: var(--sheet); stroke: var(--line); stroke-width: 1.4; transition: stroke .3s, fill .3s, opacity .3s; }
+svg .you rect { fill: var(--out); }
+svg .model rect { fill: var(--brass-soft); stroke: var(--brass); }
+svg .det rect { stroke: var(--ink); }
+svg .card, svg .answer { transition: opacity .45s ease; }
+svg .card.lit rect:first-of-type { stroke: var(--brass); stroke-width: 2; }
+svg .dim { opacity: .28; }
+svg .answer rect { stroke: var(--ember); }
+svg .answer.home rect { stroke: var(--teal); fill: var(--teal-soft); }
+svg .answer.home .v { fill: var(--teal); }
+svg .therm-tube { fill: var(--out); stroke: var(--line); }
+svg .therm-fill { fill: url(#therm); transition: y .9s ease, height .9s ease; }
+svg .therm-a { stop-color: var(--ember); }
+svg .therm-b { stop-color: #f59e0b; }
+svg .therm-mark { stroke: var(--muted); stroke-width: 1.2; }
+svg .token { fill: var(--brass); opacity: 0; filter: drop-shadow(0 0 6px rgba(200,150,30,.6)); }
+svg .token.on { opacity: 1; }
+
+/* rail */
+aside.rail { position: sticky; top: 64px; align-self: start; display: grid; gap: 18px; padding-top: 8px; max-height: calc(100vh - 80px); overflow: auto; }
+.panel { background: var(--sheet); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.panel h4 { margin: 0 0 10px; font: 500 11.5px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.machines { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.machine { font: 12px/1 var(--mono); padding: 6px 8px; border-radius: 6px; background: var(--out); }
+.machine.main { background: var(--term); color: var(--term-ink); }
+.pg-line { font-size: 13.5px; color: var(--muted); margin: 4px 0 0; }
+.pg-line b { color: var(--ink); font-weight: 500; }
+.start { margin-top: 12px; width: 100%; font: 600 14px/1 var(--body); padding: 11px 14px; border: 0; border-radius: 9px;
+  background: var(--teal); color: var(--sheet); cursor: not-allowed; opacity: .92; }
+.cps, .toc { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.cps a { display: grid; grid-template-columns: 14px 1fr; gap: 10px; align-items: start; padding: 6px 4px; border-radius: 6px;
+  color: var(--ink); text-decoration: none; font-size: 13.5px; line-height: 1.4; }
+.cps .dot { margin-top: 4px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line); transition: background .3s, border-color .3s; }
+.cps li.done .dot { background: var(--teal); border-color: var(--teal); }
+.cps a code { font: 11.5px var(--mono); }
+.toc a { display: block; padding: 5px 8px; border-left: 2px solid transparent; color: var(--muted); text-decoration: none; font-size: 13.5px; line-height: 1.35; }
+.toc li.l3 a { padding-left: 20px; }
+.toc a.here { color: var(--ink); border-left-color: var(--teal); }
+
+/* last, so no font shorthand above can switch ligatures back on: code shows the characters you type */
+code, pre, pre *, kbd, .chip, .tool, .copy, svg text { font-variant-ligatures: none !important; font-feature-settings: "liga" 0, "calt" 0, "dlig" 0 !important; }
+article .trips .trip { max-width: none; margin: 0; }
+@media (max-width: 1020px) {
+  .shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  aside.rail { position: static; max-height: none; grid-row: 2; padding-top: 18px; }
+  .toc-panel { display: none; }
+}
+@media (max-width: 520px) {
+  .shell { padding-inline: 16px; }
+  .lede { font-size: 17px; }
+  article h2 { font-size: 25px; }
+  .trip { grid-template-columns: 1fr; gap: 4px; }
+  .trip-row { grid-template-columns: 1fr; gap: 2px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="preview-bar"><b>Preview</b> how this tutorial would look on iximiuz Labs · not published</div>
+<div class="shell">
+  <header class="hero">
+    <div class="crumbs">Tutorials · kubernetes · gen-ai</div>
+    <div class="kicker">How AI Agents Run on Kubernetes</div>
+    <h1>Solving a Zoo Mystery With kagent</h1>
+    <p class="lede">Smaug the dragon has gone missing from the zoo. Hire an AI agent with kagent, ask it where Smaug went, and watch it work the case one tool call at a time: the Pods, then the logs, then the ConfigMap the logs point to. No API key needed.</p>
+    <div class="meta"><span class="who">Shiva Swaroop N K</span><span>Updated 2026-10-02</span>
+      <span>About 25 minutes</span><span class="badge">No API key needed</span></div>
+    <div class="tags"><span class="tag">kagent</span><span class="tag">ai-agents</span><span class="tag">mcp</span><span class="tag">operator</span></div>
+  </header>
+
+  <article>
+<p>Welcome wanderer!</p>
+<p>If you've landed on this tutorial, you've probably watched a demo of an AI agent fixing a Kubernetes cluster,
+and you want to know what one is.</p>
+<p>An agent is a program that sends your question to a language model (LLM), along with a list of tools the model may use.
+The model doesn't have to answer straight away. It can ask the program to run a tool, read the result, ask for another one,
+and answer only when it has seen enough.
+<a href="https://kagent.dev">kagent</a> is a CNCF project that runs agents like that on Kubernetes:
+you describe an agent in YAML, and a controller turns it into a running Pod.</p>
+<p>Is that worth it for <code>kubectl get pods</code>? No. Agents earn their keep on vague questions that take several steps to answer.
+So here's one: <strong>Smaug the dragon has gone missing from the zoo. Where is Smaug?</strong></p>
+<p>By the end of this tutorial, you'll have hired a detective agent, watched it work the case one tool call at a time,
+and checked that it really looks at the cluster instead of making things up.</p>
+<figure class="cover" id="cover">
+<div class="cover-stage">
+<svg viewBox="0 0 780 360" role="img" aria-labelledby="cover-title cover-desc">
+<title id="cover-title">The detective works the case</title>
+<desc id="cover-desc">You ask the detective where Smaug is. The detective asks the model what to do, and the model asks for one tool at a time: the Pods in the zoo, the failing Pod's logs, and the ConfigMap the logs name. Then it writes up the answer. Warming the cave brings Smaug home.</desc>
+<defs>
+  <marker id="hd" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+  <linearGradient id="therm" x1="0" y1="1" x2="0" y2="0"><stop offset="0" class="therm-a"/><stop offset="1" class="therm-b"/></linearGradient>
+</defs>
+<!-- paths the clue travels along -->
+<path id="p-ask" class="wire" d="M178,92 C230,92 240,170 296,170" marker-end="url(#hd)"/>
+<path id="p-think" class="wire" d="M370,140 L370,98" marker-end="url(#hd)"/>
+<path id="p-pods" class="wire" d="M446,160 C500,160 505,66 560,66" marker-end="url(#hd)"/>
+<path id="p-logs" class="wire" d="M446,172 L560,172" marker-end="url(#hd)"/>
+<path id="p-cm" class="wire" d="M446,184 C500,184 505,282 560,282" marker-end="url(#hd)"/>
+<path id="p-answer" class="wire" d="M330,200 C330,260 260,270 214,270" marker-end="url(#hd)"/>
+<text class="wire-label" x="503" y="112" text-anchor="middle">via kagent-tools</text>
+
+<!-- you -->
+<g class="node you"><rect x="20" y="60" width="158" height="64" rx="10"/>
+<text class="k" x="36" y="84">you, on the radio</text><text class="v" x="36" y="108">“Where is Smaug?”</text></g>
+
+<!-- model -->
+<g class="node model" id="n-model"><rect x="296" y="30" width="148" height="66" rx="10"/>
+<text class="k" x="312" y="54">model</text><text class="v think" x="312" y="80" id="think">write it up</text></g>
+
+<!-- detective -->
+<g class="node det" id="n-det"><rect x="296" y="140" width="150" height="62" rx="10"/>
+<text class="k" x="312" y="164">detective</text><text class="v" x="312" y="187">runs the loop</text></g>
+
+<!-- evidence: pods -->
+<g class="card" id="c-pods"><rect x="560" y="22" width="200" height="94" rx="10"/>
+<text class="k" x="576" y="44">pods -n zoo</text>
+<text class="row" x="576" y="66">mochi</text><text class="row ok" x="744" y="66" text-anchor="end">Running</text>
+<text class="row" x="576" y="83">rex · prickles</text><text class="row ok" x="744" y="83" text-anchor="end">Running</text>
+<text class="row" x="576" y="100" id="smaug-name">smaug</text><text class="row ember" x="744" y="100" text-anchor="end" id="smaug-status">Error</text></g>
+
+<!-- evidence: logs -->
+<g class="card" id="c-logs"><rect x="560" y="132" width="200" height="80" rx="10"/>
+<text class="k" x="576" y="154">smaug's last words</text>
+<text class="quote" x="576" y="176" id="log1">“Brr. The cave is 12°C.</text>
+<text class="quote" x="576" y="194" id="log2">Smaug is leaving.”</text></g>
+
+<!-- evidence: configmap -->
+<g class="card" id="c-cm"><rect x="560" y="228" width="200" height="110" rx="10"/>
+<text class="k" x="576" y="250">configmap smaug-cave</text>
+<text class="mono" x="576" y="276">temperature:</text>
+<text class="mono big" x="576" y="306" id="temp">"12"</text>
+<rect class="therm-tube" x="716" y="246" width="16" height="76" rx="8"/>
+<rect class="therm-fill" x="719" y="300" width="10" height="19" rx="5" id="therm-fill"/>
+<line class="therm-mark" x1="734" y1="268" x2="742" y2="268"/><text class="tiny" x="745" y="271">40</text></g>
+
+<!-- answer -->
+<g class="answer" id="answer"><rect x="20" y="226" width="194" height="112" rx="10"/>
+<text class="k" x="36" y="250" id="ans-k">case closed</text>
+<text class="v" x="36" y="276" id="ans-1">Found Smaug.</text>
+<text class="small" x="36" y="298" id="ans-2">The cave is 12°C.</text>
+<text class="small" x="36" y="318" id="ans-3">Dragons need 40°C.</text></g>
+
+<circle class="token" r="7" cx="178" cy="92" id="token"/>
+</svg>
+</div>
+<figcaption>
+  <span class="step" id="cover-step">One question, four trips to the model, three tool calls.</span>
+  <button class="pause" type="button" id="cover-toggle" aria-pressed="false">Pause</button>
+</figcaption>
+</figure>
+<p>One thing up front: <strong>the model in this tutorial is a script, not a real LLM.</strong>
+It follows four fixed rules, so it gives the same answer every time and you don't need an API key.
+It still decides from what the tools return, so it only finds Smaug because the clues are really there.
+At the end, I'll show you how to swap in a real model.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<p>You'll need to know your way around <code>kubectl</code> and to have run a <code>helm install</code> before. No AI or Python knowledge needed.</p>
+<p>The playground has a Kubernetes cluster with the zoo already open. Everything for this tutorial is in <code>~/detective</code>, which is where the IDE tab opens.</p>
+<h2 id="the-missing-dragon">The missing dragon</h2>
+<p>Here's the zoo:</p>
+<div class="code cmd"><div class="code-bar"><span>terminal · dev-machine</span>
+<button class="copy" type="button" data-copy="kubectl get pods -n zoo">Copy</button></div>
+<pre><code><span class="prompt">$ </span>kubectl get pods -n zoo</code></pre></div>
+<div class="code out"><div class="code-bar"><span>output</span></div><pre><code>NAME                      READY   STATUS    RESTARTS      AGE
+mochi-6b7f7f9445-kvzjk    1/1     <span class="ok">Running</span>   0             39s
+prickles-ddbc4956-sg9z2   1/1     <span class="ok">Running</span>   0             39s
+rex-544dd7c76b-p7q9d      1/1     <span class="ok">Running</span>   0             39s
+smaug-644b8bf964-shb89    0/1     <span class="ember">Error</span>     2 (35s ago)   39s</code></pre></div>
+<p>Everyone's here except Smaug, who keeps starting and leaving.
+You could probably find out why in a few commands. Don't. Let's hire someone to do it.</p>
+<h2 id="installing-kagent">Installing kagent</h2>
+<p>kagent comes as two Helm charts: one with its CRDs, one with everything else.
+The values file in <code>~/detective</code> turns off the example agents kagent installs by default and points kagent at our scripted model:</p>
+<div class="code file"><div class="code-bar"><span class="file-name">~/detective/kagent-values.yaml</span><span class="lang">yaml</span></div>
+<pre><code>providers:
+  default: openAI
+  openAI:
+    provider: OpenAI
+    model: detective-model
+    apiKey: not-a-real-key
+    config:
+      baseUrl: http://detective-model.kagent:8080/v1</code></pre></div>
+<div class="code cmd"><div class="code-bar"><span>terminal · dev-machine</span>
+<button class="copy" type="button" data-copy="cd ~/detective
+helm install kagent-crds oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds \
+  --version 0.10.2 --namespace kagent --create-namespace
+helm install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
+  --version 0.10.2 --namespace kagent -f kagent-values.yaml
+kubectl wait -n kagent --for=condition=Available deploy --all --timeout=180s
+kubectl get pods -n kagent">Copy</button></div>
+<pre><code><span class="prompt">$ </span>cd ~/detective
+<span class="prompt">$ </span>helm install kagent-crds oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds \
+  --version 0.10.2 --namespace kagent --create-namespace
+<span class="prompt">$ </span>helm install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
+  --version 0.10.2 --namespace kagent -f kagent-values.yaml
+<span class="prompt">$ </span>kubectl wait -n kagent --for=condition=Available deploy --all --timeout=180s
+<span class="prompt">$ </span>kubectl get pods -n kagent</code></pre></div>
+<div class="code out"><div class="code-bar"><span>output</span></div><pre><code>NAME                                 READY   STATUS    RESTARTS      AGE
+kagent-controller-75744fddf5-nqbdw   1/1     <span class="ok">Running</span>   3 (46s ago)   61s
+kagent-postgresql-f4c97f6d6-tcdf2    1/1     <span class="ok">Running</span>   0             61s
+kagent-tools-54959b659c-4l7tq        1/1     <span class="ok">Running</span>   0             61s
+kagent-ui-fdd4745f4-s7ggb            1/1     <span class="ok">Running</span>   0             61s</code></pre></div>
+<p>The controller restarting a few times is normal: it waits for its database. Here's who's who:</p>
+<ul>
+<li><code>kagent-controller</code> is an operator. It watches <code>Agent</code> resources and builds what they need, and it's also the front door you'll talk to agents through.</li>
+<li><code>kagent-tools</code> is a tool server with about a hundred Kubernetes tools, like <code>k8s_get_resources</code> and <code>k8s_get_pod_logs</code>.
+  It speaks MCP, the Model Context Protocol, the standard way to offer tools to agents.</li>
+<li><code>kagent-postgresql</code> keeps conversations. (The playground came with a StorageClass for its volume. On your own cluster, check that you have one.)</li>
+<li><code>kagent-ui</code> is a chat page we won't need.</li>
+</ul>
+<div class="checkpoint" id="cp-verify_kagent_running" data-task="verify_kagent_running">
+  <div class="cp-icon" aria-hidden="true"><span class="cp-spin"></span><svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7"/></svg></div>
+  <div class="cp-text"><span class="cp-label">Checkpoint 1 of 4</span>
+    <span class="cp-active">Waiting for the kagent controller to start...</span><span class="cp-done">kagent is running.</span></div>
+</div>
+<h2 id="the-detectives-brain">The detective's brain</h2>
+<p>The model is <code>~/detective/model/detective-model.py</code>. It's short, so open it in the IDE tab.
+Its four rules are what a person would do:</p>
+<div class="code file"><div class="code-bar"><span class="file-name">~/detective/model/detective-model.py</span><span class="lang">python</span></div>
+<pre><code>    if last.get(&quot;role&quot;) == &quot;user&quot;:
+        if not lister:
+            return &quot;rule 1: no tool to look with&quot;, {&quot;content&quot;: &quot;I can&#x27;t see the zoo from here. Nobody gave me a tool to look with.&quot;}
+        return &quot;rule 1: new question, list the Pods&quot;, call(lister, resource_type=&quot;pods&quot;, namespace=&quot;zoo&quot;)
+    results = tool_results(messages)
+    if last.get(&quot;role&quot;) != &quot;tool&quot; or not results:
+        return &quot;no rule&quot;, {&quot;content&quot;: &quot;I&#x27;m not sure what you&#x27;re asking.&quot;}
+    name, args, result = results[-1]
+
+    if name == lister and args.get(&quot;resource_type&quot;) == &quot;pods&quot;:
+        pod, status = first_unhappy_pod(result)
+        if pod is None:
+            names = &quot;, &quot;.join(status) or &quot;nobody&quot;
+            return &quot;rule 2: every Pod is Running&quot;, {&quot;content&quot;: f&quot;Everyone&#x27;s home. All Pods in the zoo are Running: {names}.&quot;}
+        if not logs:
+            return &quot;rule 2: no tool to read logs&quot;, {&quot;content&quot;: f&quot;{pod} is in {status}, but I have no tool to read its logs.&quot;}
+        return f&quot;rule 2: {pod} is in {status}, read its logs&quot;, call(logs, pod_name=pod, namespace=&quot;zoo&quot;, tail_lines=20)
+
+    if name == logs:
+        configmap = re.search(r&quot;ConfigMap ([a-z0-9-]+)&quot;, result)
+        if configmap:
+            return f&quot;rule 3: the logs mention ConfigMap {configmap.group(1)}, look at it&quot;, call(
+                lister, resource_type=&quot;configmap&quot;, resource_name=configmap.group(1), namespace=&quot;zoo&quot;, output=&quot;yaml&quot;)
+        return &quot;rule 3: the logs don&#x27;t point anywhere else&quot;, {&quot;content&quot;: &quot;Its logs say: &quot; + result.strip()[-300:]}
+
+    pod, status = first_unhappy_pod(results[0][2])
+    last_words = next((r for n, _, r in results if n == logs), &quot;&quot;).strip().splitlines()[-1:] or [&quot;&quot;]
+    data = re.search(r&quot;\ndata:\n((?:  .*\n?)+)&quot;, &quot;\n&quot; + result)
+    settings = &quot; &quot;.join(data.group(1).split()) if data else &quot;nothing I could read&quot;
+    animal = animal_of(pod).capitalize() if pod else &quot;The animal&quot;
+    return &quot;rule 4: write it up&quot;, {&quot;content&quot;: (
+        f&quot;Found {animal}. Pod {pod} is in {status}: it keeps starting and leaving. &quot;
+        f&quot;Its last words: \&quot;{last_words[0]}\&quot; &quot;
+        f&quot;The ConfigMap it reads has {settings}. &quot;
+        f&quot;Fix that, and {animal} should come home on the next restart.&quot;)}</code></pre></div>
+<p>It speaks the one endpoint kagent uses, <code>POST /v1/chat/completions</code>, and it prints every step to its log.
+Start it:</p>
+<div class="code cmd"><div class="code-bar"><span>terminal · dev-machine</span>
+<button class="copy" type="button" data-copy="kubectl -n kagent create configmap detective-model --from-file=model/detective-model.py
+kubectl apply -f model/deploy.yaml
+kubectl -n kagent rollout status deploy/detective-model">Copy</button></div>
+<pre><code><span class="prompt">$ </span>kubectl -n kagent create configmap detective-model --from-file=model/detective-model.py
+<span class="prompt">$ </span>kubectl apply -f model/deploy.yaml
+<span class="prompt">$ </span>kubectl -n kagent rollout status deploy/detective-model</code></pre></div>
+<div class="code out"><div class="code-bar"><span>output</span></div><pre><code>configmap/detective-model created
+deployment.apps/detective-model created
+service/detective-model created
+deployment &quot;detective-model&quot; successfully rolled out</code></pre></div>
+<h2 id="hiring-the-detective">Hiring the detective</h2>
+<p>Here's the whole agent:</p>
+<div class="code file"><div class="code-bar"><span class="file-name">~/detective/detective.yaml</span><span class="lang">yaml</span></div>
+<pre><code>apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: detective
+  namespace: kagent
+spec:
+  description: Finds out what happened when an animal goes missing from the zoo.
+  type: Declarative
+  declarative:
+    runtime: go
+    modelConfig: default-model-config
+    systemMessage: |
+      You are the zoo&#x27;s detective. When someone asks about a missing animal, investigate the zoo namespace
+      step by step with your tools: the Pods first, then the logs of any Pod that isn&#x27;t Running, then anything
+      the logs point to. Say what happened, show the evidence, and say how to fix it.
+      You only look; you never change anything.
+    tools:
+    - type: McpServer
+      mcpServer:
+        name: kagent-tool-server
+        kind: RemoteMCPServer
+        apiGroup: kagent.dev
+        toolNames: [k8s_get_resources, k8s_get_pod_logs, k8s_describe_resource, k8s_get_events]</code></pre></div>
+<p><code>systemMessage</code> is the job description the model gets with every question.
+<code>modelConfig</code> picks the brain, and <code>toolNames</code> picks four read-only tools from kagent's tool server.</p>
+<div class="code cmd"><div class="code-bar"><span>terminal · dev-machine</span>
+<button class="copy" type="button" data-copy="kubectl apply -f detective.yaml
+kubectl get agents -n kagent">Copy</button></div>
+<pre><code><span class="prompt">$ </span>kubectl apply -f detective.yaml
+<span class="prompt">$ </span>kubectl get agents -n kagent</code></pre></div>
+<div class="code out"><div class="code-bar"><span>output</span></div><pre><code>agent.kagent.dev/detective created
+NAME        TYPE          RUNTIME   READY   ACCEPTED
+detective   Declarative   go        True    True</code></pre></div>
+<p>If you've done <a href="/tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c">How Kubernetes Operators Work</a>, this will look familiar.
+The <code>Agent</code> is a custom resource, and the kagent controller turned it into ordinary objects:</p>
+<div class="code cmd"><div class="code-bar"><span>terminal · dev-machine</span>
+<button class="copy" type="button" data-copy="kubectl get deploy,service,secret,serviceaccount -n kagent -l app.kubernetes.io/name=detective">Copy</button></div>
+<pre><code><span class="prompt">$ </span>kubectl get deploy,service,secret,serviceaccount -n kagent -l app.kubernetes.io/name=detective</code></pre></div>
+<div class="code out"><div class="code-bar"><span>output</span></div><pre><code>NAME                        READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/detective   1/1     1            1           4s
+
+NAME                TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)    AGE
+service/detective   ClusterIP   10.101.158.107   &lt;none&gt;        8080/TCP   4s
+
+NAME               TYPE     DATA   AGE
+secret/detective   Opaque   2      4s
+
+NAME                       AGE
+serviceaccount/detective   4s</code></pre></div>
+<p>The Deployment runs kagent's agent runtime, the program that does the asking and the tool calling.
+The Secret holds its config: where the model lives and which tools it may use.</p>
+<div class="checkpoint" id="cp-verify_detective_hired" data-task="verify_detective_hired">
+  <div class="cp-icon" aria-hidden="true"><span class="cp-spin"></span><svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7"/></svg></div>
+  <div class="cp-text"><span class="cp-label">Checkpoint 2 of 4</span>
+    <span class="cp-active">Waiting for the detective Agent to be Ready...</span><span class="cp-done">The detective is hired.</span></div>
+</div>
+<h2 id="where-is-smaug">Where is Smaug?</h2>
+<p>You talk to agents through the controller, so forward its port in a <strong>second terminal tab</strong> and leave it running:</p>
+<div class="code cmd"><div class="code-bar"><span>terminal · dev-machine</span>
+<button class="copy" type="button" data-copy="kubectl -n kagent port-forward svc/kagent-controller 8083:8083">Copy</button></div>
+<pre><code><span class="prompt">$ </span>kubectl -n kagent port-forward svc/kagent-controller 8083:8083</code></pre></div>
+<p><code>~/detective/radio</code> sends your question to an agent and prints the answer.
+Under the hood, it's one <code>curl</code> using A2A, the Agent2Agent protocol: JSON over HTTP.
+Back in the first tab:</p>
+<div class="code cmd"><div class="code-bar"><span>terminal · dev-machine</span>
+<button class="copy" type="button" data-copy="./radio detective &quot;Where is Smaug?&quot;">Copy</button></div>
+<pre><code><span class="prompt">$ </span>./radio detective &quot;Where is Smaug?&quot;</code></pre></div>
+<div class="reply solved"><span class="reply-from">detective replied</span><p>Found Smaug. Pod smaug-644b8bf964-shb89 is in Error: it keeps starting and leaving. Its last words: &quot;Brr. The cave is 12°C (ConfigMap smaug-cave, key temperature). Dragons need at least 40°C. Smaug is leaving.&quot; The ConfigMap it reads has temperature: &quot;12&quot;. Fix that, and Smaug should come home on the next restart.</p></div>
+<p>Case closed, and you didn't run a single <code>kubectl</code> command for it.</p>
+<div class="checkpoint" id="cp-verify_case_solved" data-task="verify_case_solved">
+  <div class="cp-icon" aria-hidden="true"><span class="cp-spin"></span><svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7"/></svg></div>
+  <div class="cp-text"><span class="cp-label">Checkpoint 3 of 4</span>
+    <span class="cp-active">Waiting for the detective to solve the case...</span><span class="cp-done">The detective followed the clues and found out what happened to Smaug.</span></div>
+</div>
+<h3 id="reading-the-detectives-notebook">Reading the detective's notebook</h3>
+<p>So how did it get there? The model printed its side of the investigation:</p>
+<div class="code cmd"><div class="code-bar"><span>terminal · dev-machine</span>
+<button class="copy" type="button" data-copy="kubectl logs -n kagent deploy/detective-model">Copy</button></div>
+<pre><code><span class="prompt">$ </span>kubectl logs -n kagent deploy/detective-model</code></pre></div>
+<div class="notebook" id="notebook">
+  <div class="nb-head"><span>kubectl logs -n kagent deploy/detective-model</span>
+    <button class="replay" type="button" id="nb-replay">Replay the investigation</button></div>
+  <ol class="trips"><li class="trip" style="--i:1">
+  <div class="trip-n">Trip 1</div>
+  <div class="trip-body">
+    <div class="trip-row"><span class="trip-k">sent</span><span class="chips"><span class="chip r-system">system</span><span class="chip r-user">user</span></span></div>
+    <div class="trip-row"><span class="trip-k">rule</span><span class="rule">new question, list the Pods</span></div>
+    <div class="trip-row"><span class="trip-k">replies</span><span class="replytext"><span class="tool">k8s_get_resources</span> <code>{&quot;resource_type&quot;: &quot;pods&quot;, &quot;namespace&quot;: &quot;zoo&quot;}</code></span></div>
+  </div>
+</li><li class="trip" style="--i:2">
+  <div class="trip-n">Trip 2</div>
+  <div class="trip-body">
+    <div class="trip-row"><span class="trip-k">sent</span><span class="chips"><span class="chip r-system">system</span><span class="chip r-user">user</span><span class="chip r-assistant">assistant</span><span class="chip r-tool">tool</span></span></div>
+    <div class="trip-row"><span class="trip-k">rule</span><span class="rule">smaug-644b8bf964-shb89 is in Error, read its logs</span></div>
+    <div class="trip-row"><span class="trip-k">replies</span><span class="replytext"><span class="tool">k8s_get_pod_logs</span> <code>{&quot;pod_name&quot;: &quot;smaug-644b8bf964-shb89&quot;, &quot;namespace&quot;: &quot;zoo&quot;, &quot;tail_lines&quot;: 20}</code></span></div>
+  </div>
+</li><li class="trip" style="--i:3">
+  <div class="trip-n">Trip 3</div>
+  <div class="trip-body">
+    <div class="trip-row"><span class="trip-k">sent</span><span class="chips"><span class="chip r-system">system</span><span class="chip r-user">user</span><span class="chip r-assistant">assistant</span><span class="chip r-tool">tool</span><span class="chip r-assistant">assistant</span><span class="chip r-tool">tool</span></span></div>
+    <div class="trip-row"><span class="trip-k">rule</span><span class="rule">the logs mention ConfigMap smaug-cave, look at it</span></div>
+    <div class="trip-row"><span class="trip-k">replies</span><span class="replytext"><span class="tool">k8s_get_resources</span> <code>{&quot;resource_type&quot;: &quot;configmap&quot;, &quot;resource_name&quot;: &quot;smaug-cave&quot;, &quot;namespace&quot;: &quot;zoo&quot;, &quot;output&quot;: &quot;yaml&quot;}</code></span></div>
+  </div>
+</li><li class="trip" style="--i:4">
+  <div class="trip-n">Trip 4</div>
+  <div class="trip-body">
+    <div class="trip-row"><span class="trip-k">sent</span><span class="chips"><span class="chip r-system">system</span><span class="chip r-user">user</span><span class="chip r-assistant">assistant</span><span class="chip r-tool">tool</span><span class="chip r-assistant">assistant</span><span class="chip r-tool">tool</span><span class="chip r-assistant">assistant</span><span class="chip r-tool">tool</span></span></div>
+    <div class="trip-row"><span class="trip-k">rule</span><span class="rule">write it up</span></div>
+    <div class="trip-row"><span class="trip-k">answers</span><span class="replytext">Found Smaug. Pod smaug-644b8bf964-shb89 is in Error: it keeps starting and leaving. Its last words: &quot;Brr. The cave is 12°C (ConfigMap smaug-cave, key temperature). Dragons need at least 40°C. Smaug is leaving.&quot; The ConfigMap it reads has temperature: &quot;12&quot;. Fix that, and Smaug should come home on the next restart.</span></div>
+  </div>
+</li></ol>
+  <details class="nb-raw"><summary>Raw log</summary><pre><code>detective-model listening on :8080
+&lt;- asked: messages=[&#x27;system&#x27;, &#x27;user&#x27;]
+   rule 1: new question, list the Pods
+-&gt; reply: call k8s_get_resources {&quot;resource_type&quot;: &quot;pods&quot;, &quot;namespace&quot;: &quot;zoo&quot;}
+&lt;- asked: messages=[&#x27;system&#x27;, &#x27;user&#x27;, &#x27;assistant&#x27;, &#x27;tool&#x27;]
+   rule 2: smaug-644b8bf964-shb89 is in Error, read its logs
+-&gt; reply: call k8s_get_pod_logs {&quot;pod_name&quot;: &quot;smaug-644b8bf964-shb89&quot;, &quot;namespace&quot;: &quot;zoo&quot;, &quot;tail_lines&quot;: 20}
+&lt;- asked: messages=[&#x27;system&#x27;, &#x27;user&#x27;, &#x27;assistant&#x27;, &#x27;tool&#x27;, &#x27;assistant&#x27;, &#x27;tool&#x27;]
+   rule 3: the logs mention ConfigMap smaug-cave, look at it
+-&gt; reply: call k8s_get_resources {&quot;resource_type&quot;: &quot;configmap&quot;, &quot;resource_name&quot;: &quot;smaug-cave&quot;, &quot;namespace&quot;: &quot;zoo&quot;, &quot;output&quot;: &quot;yaml&quot;}
+&lt;- asked: messages=[&#x27;system&#x27;, &#x27;user&#x27;, &#x27;assistant&#x27;, &#x27;tool&#x27;, &#x27;assistant&#x27;, &#x27;tool&#x27;, &#x27;assistant&#x27;, &#x27;tool&#x27;]
+   rule 4: write it up
+-&gt; reply: Found Smaug. Pod smaug-644b8bf964-shb89 is in Error: it keeps starting and leaving. Its last words: &quot;Brr. The cave is 12°C (ConfigMap smaug-cave, key temperature). Dragons need at least 40°C. Smaug is leaving.&quot; The ConfigMap it reads has temperature: &quot;12&quot;. Fix that, and Smaug should come home on the next restart.</code></pre></details>
+</div>
+<p>One question, four trips to the model. Watch the <code>messages</code> list grow:</p>
+<ol>
+<li>The detective sent the job description (<code>system</code>) and your question (<code>user</code>). The model didn't answer. It asked for a tool: list the Pods.</li>
+<li>The detective ran that tool on the tool server and went back to the model with everything so far, plus the result (<code>assistant</code>, <code>tool</code>).
+   The model saw Smaug failing and asked for the next tool: Smaug's logs.</li>
+<li>The logs named a ConfigMap, so the model asked to see it.</li>
+<li>With all three results in hand, the model answered.</li>
+</ol>
+<p>That loop is what makes something an agent. The model only ever writes text: either "run this tool" or the answer.
+The detective's runtime does the running, and it keeps going until the model stops asking for tools.</p>
+<p>Nothing is remembered between trips, either. Each time, the detective sends the whole conversation again,
+which is why the list keeps getting longer.</p>
+<h2 id="bringing-smaug-home">Bringing Smaug home</h2>
+<p>The detective only looks. Fixing things is your job. Warm the cave, and restart Smaug so it reads the new temperature:</p>
+<div class="code cmd"><div class="code-bar"><span>terminal · dev-machine</span>
+<button class="copy" type="button" data-copy="kubectl patch configmap smaug-cave -n zoo --type=merge -p &#x27;{&quot;data&quot;:{&quot;temperature&quot;:&quot;45&quot;}}&#x27;
+kubectl rollout restart deploy/smaug -n zoo
+kubectl rollout status deploy/smaug -n zoo
+kubectl logs -n zoo deploy/smaug">Copy</button></div>
+<pre><code><span class="prompt">$ </span>kubectl patch configmap smaug-cave -n zoo --type=merge -p &#x27;{&quot;data&quot;:{&quot;temperature&quot;:&quot;45&quot;}}&#x27;
+<span class="prompt">$ </span>kubectl rollout restart deploy/smaug -n zoo
+<span class="prompt">$ </span>kubectl rollout status deploy/smaug -n zoo
+<span class="prompt">$ </span>kubectl logs -n zoo deploy/smaug</code></pre></div>
+<div class="code out"><div class="code-bar"><span>output</span></div><pre><code>configmap/smaug-cave patched
+deployment.apps/smaug restarted
+deployment &quot;smaug&quot; successfully rolled out
+Found 2 pods, using pod/smaug-58bc58c74d-k9c84
+The cave is 45°C. Smaug is asleep on the gold.</code></pre></div>
+<p>Now ask the same question again:</p>
+<div class="code cmd"><div class="code-bar"><span>terminal · dev-machine</span>
+<button class="copy" type="button" data-copy="./radio detective &quot;Where is Smaug?&quot;">Copy</button></div>
+<pre><code><span class="prompt">$ </span>./radio detective &quot;Where is Smaug?&quot;</code></pre></div>
+<div class="reply home"><span class="reply-from">detective replied</span><p>Everyone&#x27;s home. All Pods in the zoo are Running: mochi, prickles, rex, smaug.</p></div>
+<p>Same question, different answer, because the cluster is different.
+The detective knows nothing about the zoo on its own. Everything it says, it looked up just now.</p>
+<div class="checkpoint" id="cp-verify_smaug_home" data-task="verify_smaug_home">
+  <div class="cp-icon" aria-hidden="true"><span class="cp-spin"></span><svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7"/></svg></div>
+  <div class="cp-text"><span class="cp-label">Checkpoint 4 of 4</span>
+    <span class="cp-active">Waiting for Smaug to come home, and for the detective to notice...</span><span class="cp-done">Smaug is home, and the detective saw it for itself.</span></div>
+</div>
+<h2 id="bringing-a-real-model">Bringing a real model</h2>
+<p>The scripted model only knows how to follow this one trail. A real LLM decides on its own which tools to call and when to stop.
+If you have an Anthropic API key, store it in a Secret (<code>read -s</code> keeps it off your screen and out of your shell history),
+then give the detective a Claude brain:</p>
+<div class="code cmd"><div class="code-bar"><span>terminal · dev-machine</span>
+<button class="copy" type="button" data-copy="read -rs KEY &amp;&amp; kubectl -n kagent create secret generic kagent-anthropic \
+  --from-literal=ANTHROPIC_API_KEY=&quot;$KEY&quot;; unset KEY
+kubectl apply -f claude.yaml
+kubectl patch agent detective -n kagent --type merge \
+  -p &#x27;{&quot;spec&quot;:{&quot;declarative&quot;:{&quot;modelConfig&quot;:&quot;claude&quot;}}}&#x27;
+kubectl rollout status deploy/detective -n kagent">Copy</button></div>
+<pre><code><span class="prompt">$ </span>read -rs KEY &amp;&amp; kubectl -n kagent create secret generic kagent-anthropic \
+  --from-literal=ANTHROPIC_API_KEY=&quot;$KEY&quot;; unset KEY
+<span class="prompt">$ </span>kubectl apply -f claude.yaml
+<span class="prompt">$ </span>kubectl patch agent detective -n kagent --type merge \
+  -p &#x27;{&quot;spec&quot;:{&quot;declarative&quot;:{&quot;modelConfig&quot;:&quot;claude&quot;}}}&#x27;
+<span class="prompt">$ </span>kubectl rollout status deploy/detective -n kagent</code></pre></div>
+<p>Break the cave again (set the temperature back to <code>12</code> and restart Smaug), then ask the detective anything:
+"Where is Smaug?", "Which animal needs attention, and why?", or "Explain CrashLoopBackOff to a new zookeeper, using Smaug as the example".</p>
+<p>Then try a follow-up, like "can you fix it for me?", and see what happens.
+Each <code>./radio</code> call starts a brand-new conversation, and that turns out to be a whole topic of its own.</p>
+<h2 id="common-points-to-debug">Common points to debug</h2>
+<p>If something doesn't behave the way you expect:</p>
+<ul>
+<li>If <code>kubectl wait</code> times out while installing kagent, run it again. On a fresh cluster, pulling the images can take a minute or two.</li>
+<li>If <code>./radio</code> prints nothing or <code>curl: (7)</code>, the port-forward in the second tab isn't running. Start it again.</li>
+<li>If the Agent never gets Ready, look at <code>kubectl describe agent -n kagent detective</code> and at its Pod: <code>kubectl get pods -n kagent -l app.kubernetes.io/name=detective</code>.</li>
+<li>If the detective says it can't see the zoo, check that the tool names in <code>detective.yaml</code> match real ones:
+  <code>kubectl get remotemcpserver kagent-tool-server -n kagent -o json | jq -r '.status.discoveredTools[].name'</code>.</li>
+<li>If Smaug is still missing after you warm the cave, check that you restarted it. A running Pod only reads the ConfigMap when it starts.</li>
+</ul>
+<h2 id="wrapping-up">Wrapping up</h2>
+<p>That's it! The zoo has a detective.</p>
+<p>An agent in kagent is a custom resource. The controller turns it into a Deployment, a Service, a ServiceAccount and a config Secret.
+Inside, it's a loop: ask the model, run the tool it asks for, ask again, answer.
+Text is all the model produces. The tools do the looking, and the answer is only as good as what they return.</p>
+<p>If you want to keep going:</p>
+<ul>
+<li>Give the detective a real model and see how differently it works the same case.</li>
+<li>Look at what kagent's tool server may do in your cluster: <code>kubectl auth can-i --list --as=system:serviceaccount:kagent:kagent-tools</code>. You might not like the answer.</li>
+<li>Connect a coding agent like Claude Code to your agents. The controller also speaks MCP, at <code>/mcp</code>.</li>
+</ul>
+<h3 id="references">References</h3>
+<ul>
+<li><a href="https://kagent.dev/docs/kagent">kagent documentation</a></li>
+<li><a href="https://github.com/kagent-dev/kagent">kagent on GitHub</a></li>
+<li><a href="https://modelcontextprotocol.io">Model Context Protocol</a></li>
+<li><a href="https://a2a-protocol.org">Agent2Agent (A2A) protocol</a></li>
+<li><a href="/tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c">How Kubernetes Operators Work: Building a Controller From Scratch</a></li>
+</ul>
+  </article>
+
+  <aside class="rail" aria-label="Tutorial tools">
+    <div class="panel">
+      <h4>Playground</h4>
+      <div class="machines"><span class="machine main">dev-machine</span><span class="machine">cplane-01</span><span class="machine">node-01</span><span class="machine">node-02</span></div>
+      <p class="pg-line">IDE opens <b>~/detective</b></p>
+      <p class="pg-line">At start, <b>the zoo is open</b> and Smaug is missing.</p>
+      <button class="start" type="button" disabled title="Preview only">Start playground</button>
+    </div>
+    <div class="panel">
+      <h4>Checkpoints</h4>
+      <ol class="cps" id="cps"><li data-task="verify_kagent_running"><a href="#cp-verify_kagent_running"><span class="dot"></span>kagent is running.</a></li><li data-task="verify_detective_hired"><a href="#cp-verify_detective_hired"><span class="dot"></span>The detective is hired.</a></li><li data-task="verify_case_solved"><a href="#cp-verify_case_solved"><span class="dot"></span>The detective followed the clues and found out what happened to Smaug.</a></li><li data-task="verify_smaug_home"><a href="#cp-verify_smaug_home"><span class="dot"></span>Smaug is home, and the detective saw it for itself.</a></li></ol>
+    </div>
+    <div class="panel toc-panel">
+      <h4>On this page</h4>
+      <ol class="toc" id="toc"><li class="l2"><a href="#prerequisites">Prerequisites</a></li><li class="l2"><a href="#the-missing-dragon">The missing dragon</a></li><li class="l2"><a href="#installing-kagent">Installing kagent</a></li><li class="l2"><a href="#the-detectives-brain">The detective's brain</a></li><li class="l2"><a href="#hiring-the-detective">Hiring the detective</a></li><li class="l2"><a href="#where-is-smaug">Where is Smaug?</a></li><li class="l3"><a href="#reading-the-detectives-notebook">Reading the detective's notebook</a></li><li class="l2"><a href="#bringing-smaug-home">Bringing Smaug home</a></li><li class="l2"><a href="#bringing-a-real-model">Bringing a real model</a></li><li class="l2"><a href="#common-points-to-debug">Common points to debug</a></li><li class="l2"><a href="#wrapping-up">Wrapping up</a></li><li class="l3"><a href="#references">References</a></li></ol>
+    </div>
+  </aside>
+</div>
+
+<script>
+(() => {
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+  // copy buttons
+  $$(".copy").forEach(b => b.addEventListener("click", async () => {
+    const text = b.dataset.copy;
+    try { await navigator.clipboard.writeText(text); b.textContent = "Copied"; }
+    catch { const r = document.createRange(); r.selectNodeContents(b.closest(".code").querySelector("pre")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = "Selected"; }
+    setTimeout(() => (b.textContent = "Copy"), 1400);
+  }));
+
+  // checkpoints: complete at rest; the first time one scrolls into view it briefly "waits", then completes
+  const markRail = name => { const li = $(`#cps li[data-task="${name}"]`); if (li) li.classList.add("done"); };
+  if ("IntersectionObserver" in window && !reduce) {
+    const io = new IntersectionObserver(entries => entries.forEach(e => {
+      if (!e.isIntersecting) return;
+      const el = e.target; io.unobserve(el);
+      el.classList.add("waiting");
+      setTimeout(() => { el.classList.remove("waiting"); el.classList.add("just-done"); markRail(el.dataset.task); }, 1300);
+    }), { threshold: .8 });
+    $$(".checkpoint").forEach(c => io.observe(c));
+  } else {
+    $$(".checkpoint").forEach(c => markRail(c.dataset.task));
+  }
+
+  // scroll-spy for the contents
+  const links = $$("#toc a");
+  const heads = links.map(a => document.getElementById(a.getAttribute("href").slice(1))).filter(Boolean);
+  const spy = () => {
+    let cur = heads[0];
+    for (const h of heads) if (h.getBoundingClientRect().top < 120) cur = h;
+    links.forEach(a => a.classList.toggle("here", a.getAttribute("href") === "#" + (cur && cur.id)));
+  };
+  addEventListener("scroll", spy, { passive: true }); spy();
+
+  // notebook replay: all trips visible at rest; replay reveals them one by one
+  const nb = $("#notebook"), replay = $("#nb-replay");
+  if (nb && replay) replay.addEventListener("click", () => {
+    const trips = $$(".trip", nb);
+    nb.classList.add("playing"); trips.forEach(t => t.classList.remove("shown"));
+    trips.forEach((t, i) => setTimeout(() => t.classList.add("shown"), reduce ? 0 : 450 + i * 950));
+    setTimeout(() => nb.classList.remove("playing"), reduce ? 0 : 450 + trips.length * 950 + 400);
+  });
+
+  // cover: the case board. Rests on the solved frame, then replays the investigation.
+  const svg = $("#cover svg"); if (!svg) return;
+  const token = $("#token"), step = $("#cover-step"), think = $("#think"), toggle = $("#cover-toggle");
+  const cards = { pods: $("#c-pods"), logs: $("#c-logs"), cm: $("#c-cm") };
+  const answer = $("#answer");
+  const setText = (id, t) => ($("#" + id).textContent = t);
+  const therm = (deg) => { const h = Math.max(8, Math.min(70, deg * 70 / 50)); const f = $("#therm-fill"); f.setAttribute("y", 319 - h); f.setAttribute("height", h); };
+  const solved = () => {
+    Object.values(cards).forEach(c => c.classList.remove("dim", "lit")); answer.classList.remove("dim", "home");
+    think.textContent = "write it up"; setText("temp", '"12"'); therm(12);
+    setText("smaug-status", "Error"); $("#smaug-status").setAttribute("class", "row ember");
+    setText("log1", "“Brr. The cave is 12°C."); setText("log2", "Smaug is leaving.”");
+    setText("ans-k", "case closed"); setText("ans-1", "Found Smaug."); setText("ans-2", "The cave is 12°C."); setText("ans-3", "Dragons need 40°C.");
+  };
+  solved();
+  if (reduce) { toggle.hidden = true; return; }
+
+  let paused = false, timer = null, idx = 0;
+  const travel = (pathId, ms = 900, back = false) => new Promise(res => {
+    const p = $("#" + pathId), len = p.getTotalLength(), t0 = performance.now();
+    p.classList.add("hot"); token.classList.add("on");
+    const tick = now => {
+      if (paused) { requestAnimationFrame(tick); return; }
+      const k = Math.min(1, (now - t0) / ms), e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+      const pt = p.getPointAtLength((back ? 1 - e : e) * len); token.setAttribute("cx", pt.x); token.setAttribute("cy", pt.y);
+      if (k < 1) requestAnimationFrame(tick); else { p.classList.remove("hot"); res(); }
+    };
+    requestAnimationFrame(tick);
+  });
+  const wait = ms => new Promise(res => { const t0 = performance.now(); const loop = () => (paused ? setTimeout(loop, 100) : performance.now() - t0 >= ms ? res() : setTimeout(loop, 50)); loop(); });
+  const say = t => (step.textContent = t);
+  const light = key => { Object.entries(cards).forEach(([k, c]) => c.classList.toggle("lit", k === key)); cards[key].classList.remove("dim"); };
+
+  async function run() {
+    for (;;) {
+      solved(); say("One question, four trips to the model, three tool calls."); token.classList.remove("on");
+      await wait(3200);
+      Object.values(cards).forEach(c => c.classList.add("dim")); answer.classList.add("dim"); think.textContent = "…";
+      say("You radio the detective: “Where is Smaug?”"); await travel("p-ask", 1000);
+      say("Trip 1 · the model asks for a tool: list the Pods"); await travel("p-think", 600); think.textContent = "list the Pods"; await wait(600); await travel("p-think", 600, true);
+      await travel("p-pods", 800); light("pods"); await wait(1100);
+      say("Trip 2 · Smaug is failing, so: read its logs"); await travel("p-pods", 700, true); await travel("p-think", 500); think.textContent = "read its logs"; await wait(600); await travel("p-think", 500, true);
+      await travel("p-logs", 700); light("logs"); await wait(1100);
+      say("Trip 3 · the logs name a ConfigMap, so: look at it"); await travel("p-logs", 600, true); await travel("p-think", 500); think.textContent = "check smaug-cave"; await wait(600); await travel("p-think", 500, true);
+      await travel("p-cm", 800); light("cm"); await wait(1100);
+      say("Trip 4 · enough evidence: the model writes it up"); await travel("p-cm", 700, true); await travel("p-think", 500); think.textContent = "write it up"; await wait(500); await travel("p-think", 500, true);
+      await travel("p-answer", 800); token.classList.remove("on"); answer.classList.remove("dim"); Object.values(cards).forEach(c => c.classList.remove("lit"));
+      await wait(2600);
+      say("You warm the cave to 45°C and restart Smaug. Same question, new answer.");
+      therm(45); setText("temp", '"45"'); setText("smaug-status", "Running"); $("#smaug-status").setAttribute("class", "row ok");
+      setText("log1", "“The cave is 45°C."); setText("log2", "Smaug is asleep on the gold.”");
+      await wait(900);
+      answer.classList.add("home"); setText("ans-k", "everyone's home"); setText("ans-1", "Smaug is back."); setText("ans-2", "All Pods are Running."); setText("ans-3", "");
+      await wait(4200);
+    }
+  }
+  toggle.addEventListener("click", () => { paused = !paused; toggle.textContent = paused ? "Play" : "Pause"; toggle.setAttribute("aria-pressed", String(paused)); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden && !paused) { paused = true; toggle.textContent = "Play"; toggle.setAttribute("aria-pressed", "true"); } });
+  run();
+})();
+</script>
+</body>
+</html>

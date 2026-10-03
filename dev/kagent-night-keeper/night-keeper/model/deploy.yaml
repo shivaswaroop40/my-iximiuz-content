@@ -1,0 +1,39 @@
+# Runs keeper-model.py from the ConfigMap created with:
+#   kubectl -n kagent create configmap keeper-model --from-file=keeper-model.py
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keeper-model
+  namespace: kagent
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: keeper-model}
+  template:
+    metadata:
+      labels: {app: keeper-model}
+    spec:
+      containers:
+      - name: model
+        image: public.ecr.aws/docker/library/python:3.13-alpine
+        command: ["python", "-u", "/app/keeper-model.py", "8080"]
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - {name: app, mountPath: /app}
+        resources:
+          requests: {cpu: 10m, memory: 32Mi}
+          limits: {memory: 64Mi}
+      volumes:
+      - name: app
+        configMap: {name: keeper-model}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keeper-model
+  namespace: kagent
+spec:
+  selector: {app: keeper-model}
+  ports:
+  - port: 8080
