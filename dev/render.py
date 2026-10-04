@@ -37,7 +37,7 @@ DEV = pathlib.Path(__file__).resolve().parent
 TUTORIALS_DIR = DEV.parent / "tutorials"
 ZOO = TUTORIALS_DIR / "open-a-kubernetes-zoo-9ad54ae8"
 OPERATOR = TUTORIALS_DIR / "build-a-kubernetes-operator-from-scratch-a6eecb2c"
-KAGENT = TUTORIALS_DIR / "run-ai-agents-on-kubernetes-with-kagent"
+KAGENT = TUTORIALS_DIR / "run-ai-agents-on-kubernetes-with-kagent-4b76ea2e"
 
 TUTORIALS = [
     # ships: folders packed into __static__/<folder>.tar.gz; static: files the startupFiles fetch as they are.

@@ -4,7 +4,7 @@ import { LABEL_FONT, INK, BLUE, SALMON, MUTED, text, block, doc, cloud, person, 
 // tool server, then the fix. The agent Pod reasons; kagent-tools is what actually reads the cluster.
 export default {
   name: "3-how-the-detective-solves-it",
-  out: ["docs/diagrams", "tutorials/run-ai-agents-on-kubernetes-with-kagent/__static__"],
+  out: ["docs/diagrams", "tutorials/run-ai-agents-on-kubernetes-with-kagent-4b76ea2e/__static__"],
   elements: [
     text(780, 0, "How the detective solves it", { size: 48, align: "center", font: LABEL_FONT }),
 

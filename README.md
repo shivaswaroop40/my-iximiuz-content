@@ -22,7 +22,7 @@ and `labctl content pull` refreshes it. See `AGENTS.md` for the pre-push checkli
 
 - [How Kubernetes CRDs Work: Designing a Validated API From Scratch](tutorials/open-a-kubernetes-zoo-9ad54ae8/index.md) (draft)
 - [How Kubernetes Operators Work: Building a Controller From Scratch](tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c/index.md) (draft)
-- [How AI Agents Run on Kubernetes: Solving a Zoo Mystery With kagent](tutorials/run-ai-agents-on-kubernetes-with-kagent/index.md) (draft, not on Labs yet: `labctl content create` will give the folder its hash suffix)
+- [How AI Agents Run on Kubernetes: Solving a Zoo Mystery With kagent](tutorials/run-ai-agents-on-kubernetes-with-kagent-4b76ea2e/index.md)
 
 ## Challenges
 
