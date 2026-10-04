@@ -7,8 +7,11 @@ so it gives the same answer every time and needs no API key:
 2. Got the Pods: if one isn't Running, read its logs. If they're all Running, say so.
 3. Got the logs: if they name a ConfigMap, look at it. Otherwise report the logs.
 4. Got the ConfigMap: write up what happened.
+5. A follow-up that asks it to fix something: it only looks, so it says that's your job.
+   (A fresh question, even in the same conversation, it investigates again from rule 1.)
 
 Every request, the rule it used and its reply are printed, so `kubectl logs` reads like a notebook.
+For a new question, it also prints the tools it was offered.
 It only speaks the one endpoint kagent uses: POST /v1/chat/completions (no streaming).
 """
 import json
@@ -51,18 +54,35 @@ def animal_of(pod):
 
 
 def first_unhappy_pod(table):
-    """(pod, status) for an animal with no Running Pod, or (None, [every animal])."""
+    """(pod, status) for an animal with no healthy Pod, or (None, [every animal])."""
     lines = [l for l in table.splitlines() if l.strip()]
     if not lines or not lines[0].startswith("NAME"):
         return None, []
-    status_at = lines[0].split().index("STATUS")
-    pods = [(cells[0], cells[status_at]) for cells in (l.split() for l in lines[1:]) if len(cells) > status_at]
-    # During a rollout an animal briefly has two Pods. If one of them is Running, the animal is home.
-    home = {animal_of(pod) for pod, status in pods if status == "Running"}
-    for pod, status in pods:
+    header = lines[0].split()
+    status_at, ready_at = header.index("STATUS"), header.index("READY")
+    pods = [cells for cells in (l.split() for l in lines[1:]) if len(cells) > status_at]
+
+    def healthy(cells):
+        # Running isn't enough: a crash-looping Pod flickers through Running before it exits, so
+        # it shows up as e.g. "0/1 Running" for a moment. An animal is only home when its Pod is ready.
+        got, _, want = cells[ready_at].partition("/")
+        return cells[status_at] == "Running" and got == want and got not in ("", "0")
+
+    # During a rollout an animal briefly has two Pods. If one of them is healthy, the animal is home.
+    home = {animal_of(cells[0]) for cells in pods if healthy(cells)}
+    for cells in pods:
+        pod, status = cells[0], cells[status_at]
         if animal_of(pod) not in home and status not in ("Completed", "Terminating"):
             return pod, status
-    return None, sorted({animal_of(pod) for pod, _ in pods})
+    return None, sorted({animal_of(cells[0]) for cells in pods})
+
+
+def earlier_answer(messages):
+    """The last answer this conversation already got, if any: the text that came right after a tool result.
+    (kagent sends an earlier answer back as a "user" message, not an "assistant" one, so look at the order.)"""
+    answers = [text_of(m.get("content")) for before, m in zip(messages, messages[1:-1])
+               if before.get("role") == "tool" and m.get("role") in ("assistant", "user") and m.get("content")]
+    return answers[-1] if answers else None
 
 
 def call(name, **args):
@@ -76,6 +96,13 @@ def decide(request):
     lister, logs = tool_named(tools, "get_resources"), tool_named(tools, "get_pod_logs")
     last = messages[-1] if messages else {}
 
+    fix_intent = re.search(r"\b(fix|change|solve|repair|warm|restart|set|update|patch|do|handle|sort|resolve)\b",
+                           text_of(last.get("content")), re.I)
+    if last.get("role") == "user" and fix_intent and earlier_answer(messages):
+        looks = [t for t in tools if t != "ask_user"]
+        return "rule 5: a follow-up asking me to fix it", {"content":
+            f"I can't fix it. Every tool I have only looks ({', '.join(looks)}), so changing the zoo is your job. "
+            "I already found the cause, though, in this same conversation."}
     if last.get("role") == "user":
         if not lister:
             return "rule 1: no tool to look with", {"content": "I can't see the zoo from here. Nobody gave me a tool to look with."}
@@ -132,6 +159,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(404, {"error": {"message": f"detective-model only serves /v1/chat/completions, not {self.path}"}})
         roles = [m.get("role") for m in request.get("messages") or []]
         print(f"<- asked: messages={roles}", flush=True)
+        if roles and roles[-1] == "user":
+            tools = [t.get("function", {}).get("name", "") for t in request.get("tools") or []]
+            print(f"   offered tools: {tools}", flush=True)
         rule, decision = decide(request)
         print(f"   {rule}", flush=True)
         if "tool_call" in decision:

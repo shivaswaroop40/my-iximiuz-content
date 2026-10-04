@@ -1,18 +1,18 @@
-import { LABEL_FONT, INK, BLUE, SALMON, MUTED, text, block, doc, cylinder, cloud, person, curve } from "../_lib.mjs";
+import { LABEL_FONT, INK, BLUE, SALMON, MUTED, text, block, doc, cloud, person, curve } from "../_lib.mjs";
 
 // What kagent is: an operator for AI agents. YAML in, a running agent loop out.
 export default {
   name: "1-what-is-kagent",
-  out: "docs/diagrams",
+  out: ["docs/diagrams", "tutorials/run-ai-agents-on-kubernetes-with-kagent/__static__"],
   elements: [
-    text(780, 0, "What kagent actually is", { size: 48, align: "center", font: LABEL_FONT }),
+    text(780, 0, "What kagent is", { size: 48, align: "center", font: LABEL_FONT }),
 
     ...person(70, 230, "you write\nYAML"),
-    ...doc("agent", 150, 160, 300, 220, "Agent detective",
-      "systemMessage: |\n  You are the zoo's\n  detective...\nmodelConfig: claude\ntools:\n  - k8s_get_resources\n  - k8s_get_pod_logs", { size: 16 }),
+    ...doc("agent", 140, 160, 330, 230, "Agent detective",
+      "systemMessage: |\n  You are the zoo's\n  detective...\nmodelConfig: default-model-config\ntoolNames:\n  - k8s_get_resources\n  - k8s_get_pod_logs\n  - ... 2 more", { size: 15 }),
 
-    curve([[452, 260], [500, 245], [556, 262]]),
-    text(504, 168, "kubectl\napply", { size: 19, color: BLUE, align: "center" }),
+    curve([[472, 260], [512, 245], [556, 262]]),
+    text(512, 168, "kubectl\napply", { size: 19, color: BLUE, align: "center" }),
 
     ...block("ctrl", 560, 220, 250, 120, "kagent\ncontroller", { size: 26 }),
 
@@ -23,10 +23,10 @@ export default {
     text(685, 430, "looks up", { size: 18, align: "center", color: MUTED }),
 
     curve([[812, 262], [870, 240], [926, 258]]),
-    text(870, 112, "creates a Deployment,\nService, Secret", { size: 18, color: BLUE, align: "center" }),
+    text(870, 112, "creates a Deployment, Service,\nSecret, ServiceAccount", { size: 18, color: BLUE, align: "center" }),
     ...block("pod", 930, 200, 270, 140, "detective Pod\nthe agent loop", { size: 24 }),
 
-    ...block("llm", 1330, 70, 240, 110, "LLM\nClaude / GPT / stub", { size: 21 }),
+    ...block("llm", 1330, 70, 240, 110, "LLM\nClaude / GPT /\nscripted model", { size: 21 }),
     curve([[1150, 196], [1220, 120], [1326, 112]]),
     text(1150, 92, "question +\nlist of tools", { size: 18, color: BLUE, align: "center" }),
     curve([[1360, 186], [1300, 250], [1206, 262]]),
@@ -35,7 +35,7 @@ export default {
     ...block("tools", 1330, 380, 240, 110, "kagent-tools\nMCP tool server", { size: 21 }),
     curve([[1120, 344], [1180, 420], [1326, 436]]),
     text(1130, 430, "runs the tool", { size: 18, color: BLUE, align: "center" }),
-    ...cylinder("api", 1365, 590, 170, 120, "kube-apiserver"),
+    ...block("api", 1365, 590, 180, 110, "kube-apiserver", { size: 20 }),
     curve([[1450, 494], [1460, 540], [1450, 586]]),
     text(1470, 525, "kubectl get...", { size: 17, color: BLUE }),
 
