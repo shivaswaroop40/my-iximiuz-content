@@ -21,7 +21,7 @@ tagz:
 - operator
 
 createdAt: 2026-10-02
-updatedAt: 2026-10-03
+updatedAt: 2026-10-04
 
 cover: __static__/1-what-is-kagent.png
 
@@ -409,11 +409,12 @@ kubectl get deploy detective -n kagent -o jsonpath='{.metadata.ownerReferences[0
 ```
 
 The Deployment runs kagent's agent runtime, the program that does the asking and the tool calling.
-The Secret is the most interesting one. It's the detective's compiled configuration, everything the runtime needs in one file:
+The Secret is the most interesting one. It's the detective's compiled configuration, everything the runtime needs in one file.
+Here are the parts that matter (it also carries the `systemMessage` you saw in `detective.yaml`):
 
 ```sh
 kubectl get secret detective -n kagent -o jsonpath='{.data.config\.json}' | base64 -d \
-  | jq '{model, http_tools, instruction}'
+  | jq '{model, server: .http_tools[0].params.url, tools: .http_tools[0].tools}'
 ```
 
 ```json
@@ -424,28 +425,17 @@ kubectl get secret detective -n kagent -o jsonpath='{.data.config\.json}' | base
     "base_url": "http://detective-model.kagent:8080/v1",
     "api_format": "chatCompletions"
   },
-  "http_tools": [
-    {
-      "params": {
-        "url": "http://kagent-tools.kagent:8084/mcp",
-        "headers": {},
-        "timeout": 30,
-        "sse_read_timeout": 300,
-        "terminate_on_close": true
-      },
-      "tools": [
-        "k8s_get_resources",
-        "k8s_get_pod_logs",
-        "k8s_describe_resource",
-        "k8s_get_events"
-      ]
-    }
-  ],
-  "instruction": "You are the zoo's detective. When someone asks about a missing animal, investigate the zoo namespace\nstep by step with your tools: the Pods first, then the logs of any Pod that isn't Running, then anything\nthe logs point to. Say what happened, show the evidence, and say how to fix it.\nYou only look; you never change anything.\n"
+  "server": "http://kagent-tools.kagent:8084/mcp",
+  "tools": [
+    "k8s_get_resources",
+    "k8s_get_pod_logs",
+    "k8s_describe_resource",
+    "k8s_get_events"
+  ]
 }
 ```
 
-The controller looked up the `ModelConfig` and the `RemoteMCPServer` by name and wrote down their addresses.
+The controller looked up the `ModelConfig` and the `RemoteMCPServer` by name and wrote down their addresses (`base_url` and `server`).
 The agent Pod never reads a kagent resource. It reads this file, and that matters later.
 
 ::simple-task
@@ -570,45 +560,10 @@ which is why the list keeps getting longer.
 
 ### One trip on the wire
 
-The notebook is the model's own printout. Here's the same loop as raw JSON, which is what kagent and the model actually exchange.
-Every tool in `offered tools` reaches the model as a JSON schema. Here's one of the four:
-
-```json
-{
-  "function": {
-    "name": "k8s_get_pod_logs",
-    "description": "Get logs from a Kubernetes pod",
-    "parameters": {
-      "properties": {
-        "container": {
-          "description": "Container name (for multi-container pods)",
-          "type": "string"
-        },
-        "namespace": {
-          "description": "Namespace of the pod (default: default)",
-          "type": "string"
-        },
-        "pod_name": {
-          "description": "Name of the pod",
-          "type": "string"
-        },
-        "tail_lines": {
-          "description": "Number of lines to show from the end (default: 50)",
-          "type": "number"
-        }
-      },
-      "required": [
-        "pod_name"
-      ],
-      "type": "object"
-    }
-  },
-  "type": "function"
-}
-```
-
-The model replied with a `tool_calls` entry naming a tool and its arguments. On the next trip, the detective sent that reply back
-unchanged, followed by a `tool` message with the result and the matching `tool_call_id`:
+The notebook is the model's own printout. Underneath, kagent and the model exchange raw JSON.
+Every tool in `offered tools` reaches the model as a JSON schema (a `name`, a `description`, and typed `parameters`), so the
+model knows what it can call and with which arguments. The model picks one and replies with a `tool_calls` entry. On the next
+trip, the detective sends that reply back unchanged, followed by a `tool` message carrying the result and the matching `tool_call_id`:
 
 ```json
 {
@@ -625,7 +580,7 @@ unchanged, followed by a `tool` message with the result and the matching `tool_c
   "role": "assistant"
 }
 {
-  "content": "{\"output\":\"NAME                      READY   STATUS    RESTARTS      AGE   IP            NODE      NOMINATED NODE   READINESS GATES\\nmochi-6b7f7f9445-wbwbp    1/1     Running   0             11m   10.244.1.17   node-02   \\u003cnone\\u003e           \\u003cnone\\u003e\\nprickles-ddbc4956-fkqwz   1/1     Running   0             11m   10.244.1.18   node-02   \\u003cnone\\u003e           \\u003cnone\\u003e\\nrex-544dd7c76b-jqdks      1/1     Running   0             11m   10.244.2.15   node-01   \\u003cnone\\u003e           \\u003cnone\\u003e\\nsmaug-6f5d5d8cdc-dx9xl    0/1     Error     3 (61s ago)   76s   10.244.2.20   node-01   \\u003cnone\\u003e           \\u003cnone\\u003e\\n\"}",
+  "content": "{\"output\":\"NAME ...  smaug-6f5d5d8cdc-dx9xl  0/1  Error  3 (61s ago)  76s ...\"}",
   "tool_call_id": "call_6ee34c45",
   "role": "tool"
 }
@@ -779,31 +734,11 @@ The detective can't even get Pods. The tool server can do anything: kagent's Hel
 `kagent-tools-cluster-admin-role`, which allows every verb on every resource:
 
 ```sh
-kubectl get clusterrole kagent-tools-cluster-admin-role -o jsonpath='{.rules}' | jq
+kubectl get clusterrole kagent-tools-cluster-admin-role -o jsonpath='{.rules}' | jq -c
 ```
 
 ```json
-[
-  {
-    "apiGroups": [
-      "*"
-    ],
-    "resources": [
-      "*"
-    ],
-    "verbs": [
-      "*"
-    ]
-  },
-  {
-    "nonResourceURLs": [
-      "*"
-    ],
-    "verbs": [
-      "*"
-    ]
-  }
-]
+[{"apiGroups":["*"],"resources":["*"],"verbs":["*"]},{"nonResourceURLs":["*"],"verbs":["*"]}]
 ```
 
 So when the detective "only looks", it isn't the detective looking. It hands `k8s_get_resources` to the tool server,
