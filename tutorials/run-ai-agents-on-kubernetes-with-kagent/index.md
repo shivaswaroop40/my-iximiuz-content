@@ -219,7 +219,14 @@ kagent comes as two Helm charts: one with its CRDs, one with everything else.
 The values file in `~/detective` turns off the example agents kagent installs by default and points kagent at our scripted model:
 
 ```yaml [~/detective/kagent-values.yaml]
-{{excerpt:detective/kagent-values.yaml#from=^providers:#to=baseUrl}}
+providers:
+  default: openAI
+  openAI:
+    provider: OpenAI
+    model: detective-model
+    apiKey: not-a-real-key
+    config:
+      baseUrl: http://detective-model.kagent:8080/v1
 ```
 
 That block is worth a second look: the "model" kagent will call is an ordinary HTTP service in the cluster
@@ -288,7 +295,12 @@ The model is `~/detective/model/detective-model.py`, about 170 lines of Python.
 You don't need to read the code. Its rules are listed at the top, and they're what a person would do:
 
 ```text [~/detective/model/detective-model.py]
-{{excerpt:detective/model/detective-model.py#from=^1\. A new question#to=^   \(A fresh question}}
+1. A new question: list the Pods in the zoo.
+2. Got the Pods: if one isn't Running, read its logs. If they're all Running, say so.
+3. Got the logs: if they name a ConfigMap, look at it. Otherwise report the logs.
+4. Got the ConfigMap: write up what happened.
+5. A follow-up that asks it to fix something: it only looks, so it says that's your job.
+   (A fresh question, even in the same conversation, it investigates again from rule 1.)
 ```
 
 It speaks the one endpoint kagent uses, `POST /v1/chat/completions`, and it prints every step to its log.
@@ -313,7 +325,29 @@ deployment "detective-model" successfully rolled out
 Here's the whole agent:
 
 ```yaml [~/detective/detective.yaml]
-{{file:detective/detective.yaml}}
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: detective
+  namespace: kagent
+spec:
+  description: Finds out what happened when an animal goes missing from the zoo.
+  type: Declarative
+  declarative:
+    runtime: go
+    modelConfig: default-model-config
+    systemMessage: |
+      You are the zoo's detective. When someone asks about a missing animal, investigate the zoo namespace
+      step by step with your tools: the Pods first, then the logs of any Pod that isn't Running, then anything
+      the logs point to. Say what happened, show the evidence, and say how to fix it.
+      You only look; you never change anything.
+    tools:
+    - type: McpServer
+      mcpServer:
+        name: kagent-tool-server
+        kind: RemoteMCPServer
+        apiGroup: kagent.dev
+        toolNames: [k8s_get_resources, k8s_get_pod_logs, k8s_describe_resource, k8s_get_events]
 ```
 
 `systemMessage` is the job description the model gets with every question.
@@ -438,7 +472,26 @@ kubectl -n kagent port-forward svc/kagent-controller 8083:8083
 It's one `curl` using A2A, the Agent2Agent protocol: JSON-RPC over HTTP.
 
 ```bash [~/detective/radio]
-{{file:detective/radio}}
+#!/bin/bash
+# Radio a kagent agent: sends one A2A message/send to the kagent controller and prints the answer.
+#   ./radio detective "Where is Smaug?"               a new conversation every time
+#   ./radio -c smaug-case detective "Where is Smaug?" a conversation called smaug-case, which the agent remembers
+# Needs the controller on localhost:8083: kubectl -n kagent port-forward svc/kagent-controller 8083:8083
+set -euo pipefail
+context=""
+if [ "${1:-}" = "-c" ]; then context=$2; shift 2; fi
+agent=$1 question=$2
+id=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+curl -sS "http://localhost:8083/api/a2a/kagent/$agent/" \
+  -H 'content-type: application/json' \
+  -d "$(jq -n --arg id "$id" --arg q "$question" --arg ctx "$context" \
+        '{jsonrpc: "2.0", id: 1, method: "message/send",
+          params: {message: ({role: "user", messageId: $id, parts: [{kind: "text", text: $q}]}
+                             + if $ctx == "" then {} else {contextId: $ctx} end)}}')" \
+  | jq -r '.error.message
+           // (.result.artifacts[]?.parts[]?.text)
+           // (.result.status.message.parts[]?.text)
+           // ("(no answer; task state: " + (.result.status.state // "unknown") + ")")'
 ```
 
 Back in the first tab:

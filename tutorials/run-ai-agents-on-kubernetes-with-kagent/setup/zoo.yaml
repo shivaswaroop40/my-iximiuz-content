@@ -1,4 +1,4 @@
-# The zoo as the night shift finds it. Applied by the playground's init task, not by the learner.
+# The zoo as you find it when the playground starts. It's already applied; you don't need to apply it.
 # Every animal is a Deployment in the zoo namespace. Smaug's cave is too cold, so Smaug keeps leaving.
 apiVersion: v1
 kind: Namespace

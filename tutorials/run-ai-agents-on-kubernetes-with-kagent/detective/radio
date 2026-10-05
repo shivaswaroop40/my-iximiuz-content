@@ -1,0 +1,20 @@
+#!/bin/bash
+# Radio a kagent agent: sends one A2A message/send to the kagent controller and prints the answer.
+#   ./radio detective "Where is Smaug?"               a new conversation every time
+#   ./radio -c smaug-case detective "Where is Smaug?" a conversation called smaug-case, which the agent remembers
+# Needs the controller on localhost:8083: kubectl -n kagent port-forward svc/kagent-controller 8083:8083
+set -euo pipefail
+context=""
+if [ "${1:-}" = "-c" ]; then context=$2; shift 2; fi
+agent=$1 question=$2
+id=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+curl -sS "http://localhost:8083/api/a2a/kagent/$agent/" \
+  -H 'content-type: application/json' \
+  -d "$(jq -n --arg id "$id" --arg q "$question" --arg ctx "$context" \
+        '{jsonrpc: "2.0", id: 1, method: "message/send",
+          params: {message: ({role: "user", messageId: $id, parts: [{kind: "text", text: $q}]}
+                             + if $ctx == "" then {} else {contextId: $ctx} end)}}')" \
+  | jq -r '.error.message
+           // (.result.artifacts[]?.parts[]?.text)
+           // (.result.status.message.parts[]?.text)
+           // ("(no answer; task state: " + (.result.status.state // "unknown") + ")")'

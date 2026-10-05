@@ -22,6 +22,7 @@ and `labctl content pull` refreshes it. See `AGENTS.md` for the pre-push checkli
 
 - [How Kubernetes CRDs Work: Designing a Validated API From Scratch](tutorials/open-a-kubernetes-zoo-9ad54ae8/index.md) (draft)
 - [How Kubernetes Operators Work: Building a Controller From Scratch](tutorials/build-a-kubernetes-operator-from-scratch-a6eecb2c/index.md) (draft)
+- [How AI Agents Run on Kubernetes: Solving a Zoo Mystery With kagent](tutorials/run-ai-agents-on-kubernetes-with-kagent/index.md) (draft, not on Labs yet: `labctl content create` will give the folder its hash suffix)
 
 ## Challenges
 
@@ -43,13 +44,15 @@ Everything is currently tested against Kubernetes v1.37, Go 1.26.8, controller-r
 dev/lint.py                                     # every folder: what learners see, startupFiles, cover, task scripts
 dev/open-a-kubernetes-zoo/run-tests.sh          # zoo tutorial: each CRD step passes exactly the expected checks
 dev/build-a-kubernetes-operator/run-tests.sh    # operator tutorial: builds the shipped project and walks every step
+dev/kagent-smaug-escaped/run-tests.sh           # kagent tutorial: installs kagent 0.10.2 and walks every step (no API key)
 ```
 
 Each tutorial ships its files to the playground, and the shipped files next to `index.md` are the source of truth:
 
 - zoo: `pet-crd/` (the five CRD versions), `pets/` (the adopted and turned-away Pet manifests) and
   `__static__/pet-api.txt` (the spec, unpacked as `~/pet-api.md`);
-- operator: `pet-operator/` (the Go project, the hand-written CRD and the bash controller).
+- operator: `pet-operator/` (the Go project, the hand-written CRD and the bash controller);
+- kagent: `detective/` (Helm values, the Agent, the scripted model, `radio`) and `setup/` (the init script, the zoo and a mirrored local-path-provisioner manifest, unpacked in `/opt/zoo-setup`).
 
 `dev/push.py` packs each folder into `__static__/<folder>.tar.gz`, which the `startupFiles` in the
 front matter unpack into the learner's home directory. The tutorial's `.labctlignore` keeps the raw folders out
