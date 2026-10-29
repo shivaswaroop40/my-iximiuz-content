@@ -3,7 +3,7 @@ import { LABEL_FONT, INK, BLUE, SALMON, MUTED, text, block, doc, cloud, person, 
 // What kagent is: an operator for AI agents. YAML in, a running agent loop out.
 export default {
   name: "1-what-is-kagent",
-  out: ["docs/diagrams", "tutorials/run-ai-agents-on-kubernetes-with-kagent/__static__"],
+  out: ["docs/diagrams", "tutorials/run-ai-agents-on-kubernetes-with-kagent-4b76ea2e/__static__"],
   elements: [
     text(780, 0, "What kagent is", { size: 48, align: "center", font: LABEL_FONT }),
 

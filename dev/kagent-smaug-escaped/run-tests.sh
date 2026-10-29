@@ -17,7 +17,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-CONTENT="$HERE/../../tutorials/run-ai-agents-on-kubernetes-with-kagent"
+CONTENT="$HERE/../../tutorials/run-ai-agents-on-kubernetes-with-kagent-4b76ea2e"
 TUTORIAL="$CONTENT/index.md"
 WORK="$(mktemp -d)"
 kubectl config view --raw --minify > "$WORK/kubeconfig" || { echo "no kubeconfig"; exit 1; }
